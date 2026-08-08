@@ -26,6 +26,7 @@ Implemented:
 - BVE/OpenBVE CSV primary-track geometry import (`Curve`, `Pitch`, `Limit`)
 - BVE/OpenBVE train asset references from `train.dat`, panel files and `sound.cfg`
 - MSTS/OpenRails textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates
+- MSTS/OpenRails `tsection.dat` section-length enrichment, including relative `include` files and local overrides
 - MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology fallback
 - MSTS/OpenRails `.con` rolling-stock asset references
 - JSON IR import/output
@@ -36,7 +37,7 @@ Implemented:
 
 Not implemented yet:
 
-- exact MSTS `tsection.dat` section geometry and curvature
+- exact MSTS curve reconstruction from `tsection.dat` plus TDB orientation/flip state
 - compressed/binary MSTS `.tdb` parsing
 - Trainz route import
 - RailWorks or Loksim3D import
@@ -62,7 +63,7 @@ railweave import /path/to/content -o project.railweave.json
 
 Without `-o`, the JSON is written to stdout.
 
-For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, it falls back to PAT topology and reports that fallback as a diagnostic.
+For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. When a nearby `tsection.dat` is available, section lengths are applied to TDB edges; relative `include` files are followed when present. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, RailWeave falls back to PAT topology and reports that fallback as a diagnostic.
 
 Compose several inputs:
 
