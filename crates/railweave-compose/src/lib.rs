@@ -71,13 +71,19 @@ fn load_input(base: &Path, name: &str, spec: &InputSpec) -> Result<ImportResult,
             let text = fs::read_to_string(&path).map_err(|error| {
                 ComposeError::new(
                     "RW302_IR_READ_FAILED",
-                    format!("failed to read input {name:?} at {}: {error}", path.display()),
+                    format!(
+                        "failed to read input {name:?} at {}: {error}",
+                        path.display()
+                    ),
                 )
             })?;
             serde_json::from_str(&text).map_err(|error| {
                 ComposeError::new(
                     "RW303_IR_PARSE_FAILED",
-                    format!("failed to parse input {name:?} at {}: {error}", path.display()),
+                    format!(
+                        "failed to parse input {name:?} at {}: {error}",
+                        path.display()
+                    ),
                 )
             })
         }
@@ -213,10 +219,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "railweave-compose-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("railweave-compose-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }
