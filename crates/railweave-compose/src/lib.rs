@@ -172,6 +172,7 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
     output.project.metadata = metadata_input.project.metadata.clone();
     output.project.assets.clear();
     output.project.consists.clear();
+    output.project.vehicles.clear();
 
     let asset_sources: Vec<&str> = if manifest.compose.assets.is_empty() {
         vec![manifest.compose.network.as_str()]
@@ -190,6 +191,21 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
             next_id = next_id.saturating_add(1);
             asset_id_map.insert(source_id, asset.id);
             output.project.assets.push(asset);
+        }
+
+        for vehicle in &source.project.vehicles {
+            let mut vehicle = vehicle.clone();
+            let Some(remapped) = asset_id_map.get(&vehicle.asset_id).copied() else {
+                return Err(ComposeError::new(
+                    "RW312_VEHICLE_ASSET",
+                    format!(
+                        "input {source_name:?} vehicle metadata references missing asset {}",
+                        vehicle.asset_id
+                    ),
+                ));
+            };
+            vehicle.asset_id = remapped;
+            output.project.vehicles.push(vehicle);
         }
 
         for consist in &source.project.consists {
@@ -217,7 +233,7 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
         Severity::Info,
         "RW300_COMPOSED",
         format!(
-            "composed network from {:?}, metadata from {:?}, assets/consists from [{}]",
+            "composed network from {:?}, metadata from {:?}, assets/vehicles/consists from [{}]",
             manifest.compose.network,
             metadata_name,
             asset_sources.join(", ")
@@ -232,7 +248,7 @@ mod tests {
     use super::*;
     use railweave_core::{
         AssetKind, AssetRef, ConsistMember, ImportResult, Provenance, RailProject,
-        RollingStockConsist, RollingStockRole, SourceFormat, TrackNode, Vec3,
+        RollingStockConsist, RollingStockRole, RollingStockVehicle, SourceFormat, TrackNode, Vec3,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -248,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn composes_network_assets_and_consists_from_different_inputs() {
+    fn composes_network_assets_vehicles_and_consists_from_different_inputs() {
         let root = fixture();
 
         let mut route = RailProject::new();
@@ -288,6 +304,20 @@ mod tests {
                 source_path: PathBuf::from("ED4M-trailer.wag"),
                 source_id: None,
             },
+        });
+        stock.vehicles.push(RollingStockVehicle {
+            asset_id: 1,
+            name: Some("ED4M motor".to_string()),
+            vehicle_type: Some("Engine".to_string()),
+            mass_kg: Some(55_000.0),
+            width_m: Some(3.5),
+            height_m: Some(4.2),
+            length_m: Some(22.0),
+            axle_count: Some(4),
+            wheel_count: Some(8.0),
+            brake_system_type: Some("Air_single_pipe".to_string()),
+            brake_equipment_type: None,
+            max_brake_force_n: Some(150_000.0),
         });
         stock.consists.push(RollingStockConsist {
             name: Some("ED4M".to_string()),
@@ -337,9 +367,15 @@ assets = ["route", "stock"]
         let composed = compose_manifest(&root.join("railweave.toml")).unwrap();
         assert_eq!(composed.project.network.nodes.len(), 1);
         assert_eq!(composed.project.assets.len(), 2);
+        assert_eq!(composed.project.vehicles.len(), 1);
         assert_eq!(composed.project.consists.len(), 1);
         assert_eq!(composed.project.consists[0].members.len(), 2);
         assert!(composed.project.assets[0].id > 1);
+        assert_eq!(
+            composed.project.vehicles[0].asset_id,
+            composed.project.assets[0].id
+        );
+        assert_eq!(composed.project.vehicles[0].mass_kg, Some(55_000.0));
         assert_eq!(
             composed.project.consists[0].members[0].asset_id,
             composed.project.assets[0].id
