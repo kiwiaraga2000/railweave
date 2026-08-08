@@ -28,12 +28,16 @@ fn lower_name(path: &Path) -> String {
 
 fn has_file(paths: &[PathBuf], name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    paths.iter().any(|path| path.is_file() && lower_name(path) == name)
+    paths
+        .iter()
+        .any(|path| path.is_file() && lower_name(path) == name)
 }
 
 fn has_dir(paths: &[PathBuf], name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    paths.iter().any(|path| path.is_dir() && lower_name(path) == name)
+    paths
+        .iter()
+        .any(|path| path.is_dir() && lower_name(path) == name)
 }
 
 fn has_extension(paths: &[PathBuf], extension: &str) -> bool {
@@ -160,7 +164,9 @@ impl SourceDetector for BveDetector {
         }
         if has_extension(&paths, "rw") {
             result.add(20, "found BVE route (.rw)");
-        } else if has_extension(&paths, "csv") && (has_dir(&paths, "railway") || has_file(&paths, "train.dat")) {
+        } else if has_extension(&paths, "csv")
+            && (has_dir(&paths, "railway") || has_file(&paths, "train.dat"))
+        {
             result.add(10, "found CSV route data in a BVE-like layout");
         }
 
@@ -239,7 +245,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("railweave-{name}-{}-{nonce}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("railweave-{name}-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }
