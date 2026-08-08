@@ -120,7 +120,10 @@ TrackSection ( 7
     .unwrap();
 
     let imported = import_path(&root).unwrap();
-    assert_eq!(imported.project.network.edges[0].curve_radius_m, Some(100.0));
+    assert_eq!(
+        imported.project.network.edges[0].curve_radius_m,
+        Some(100.0)
+    );
 
     fs::remove_dir_all(root).ok();
 }
