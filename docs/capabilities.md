@@ -5,11 +5,11 @@ RailWeave is intentionally explicit about partial support. Detection means that 
 | Format / stage | Detection | Support | Current data |
 | --- | --- | --- | --- |
 | BVE / OpenBVE | yes | partial source -> IR | CSV primary rail geometry from `Track.Curve` and `Track.Pitch`, `Track.Limit` speed state, and train/cab/sound source asset references |
-| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `tsection.dat` lengths/curves, `.pat` waypoint/path topology fallback, structured `.con` consists and resolved `.eng` / `.wag` member asset references |
+| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `tsection.dat` lengths/curves, `.pat` waypoint/path topology fallback, structured `.con` consists, resolved `.eng` / `.wag` member assets and basic vehicle physical/brake metadata |
 | Trainz | yes | no importer yet | — |
 | Train Simulator / RailWorks | yes | no importer yet | — |
 | Loksim3D | yes | no importer yet | — |
-| Composition | n/a | partial | select one input network, metadata from a named input, and assets/structured consists from any number of supported raw-source or saved-IR inputs |
+| Composition | n/a | partial | select one input network, metadata from a named input, and assets/vehicles/structured consists from any number of supported raw-source or saved-IR inputs |
 | OpenBVE target | n/a | partial IR -> target | deterministic player-rail path selection and CSV export of gauge, curve, gradient and speed-limit state |
 
 ## BVE / OpenBVE
@@ -32,7 +32,9 @@ Compressed/binary TDB variants are not parsed yet. Dynamic/custom track is suppo
 
 `.pat` import remains available directly. A PAT path contains `TrackPDP` waypoints and `TrPathNode` main/siding links; those are mapped into the same graph IR. If a route has multiple PAT files and PAT import is being used, RailWeave imports the first sorted candidate unless a specific `.pat` path is supplied.
 
-`.con` handling is now structured rather than only file-level. RailWeave reads ordered `Engine` and `Wagon` entries, preserving engine/wagon role, `Flip` orientation and source `UiD`, and resolves each member to the standard `TRAINS/TRAINSET/<folder>/<name>.eng|.wag` layout case-insensitively. Each member is a rolling-stock asset and each `RollingStockConsist` stores ordered member references to those asset IDs. Missing member files are retained as expected source paths and reported diagnostically instead of being silently dropped. Full `.eng` / `.wag` vehicle physics, cab and sound data are not parsed into structured fields yet.
+`.con` handling is structured rather than only file-level. RailWeave reads ordered `Engine` and `Wagon` entries, preserving engine/wagon role, `Flip` orientation and source `UiD`, and resolves each member to the standard `TRAINS/TRAINSET/<folder>/<name>.eng|.wag` layout case-insensitively. Each member is a rolling-stock asset and each `RollingStockConsist` stores ordered member references to those asset IDs. Missing member files are retained as expected source paths and reported diagnostically instead of being silently dropped.
+
+For each resolved `.eng` / `.wag` member, RailWeave currently parses basic `Wagon` metadata into `RollingStockVehicle`: name/type, mass, width/height/length, axle and wheel counts, brake-system/equipment strings, and maximum brake force. MSTS/OpenRails unit suffixes for mass (`kg`, `lb`, `t`, `t-uk`, `t-us`), distance (`m`, `cm`, `mm`, `km`, `ft`, `in`, `in/2`) and force (`N`, `kN`, `lbf`/`lb`) are converted to SI. Unsupported or malformed values remain unknown and generate diagnostics instead of being guessed. Traction/motor physics, cab and sound data remain future work.
 
 ## Composition
 
@@ -40,12 +42,13 @@ A version-1 TOML manifest can load either supported raw sources or saved RailWea
 
 - chooses the network from one named input;
 - optionally chooses metadata from another input;
-- gathers assets and structured consists from any number of named inputs;
+- gathers assets, structured vehicle metadata and consists from any number of named inputs;
 - remaps asset IDs deterministically so IDs do not collide with the selected network;
-- rewrites every consist member's asset reference through the same remapping table and rejects internally broken consist references;
+- rewrites both `RollingStockVehicle.asset_id` and every consist member's asset reference through the same remapping table;
+- rejects internally broken vehicle/consist references rather than producing a corrupt composed IR;
 - preserves each entity's original provenance and carries input diagnostics forward.
 
-This is enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE route plus an ordered MSTS/OpenRails consist in one IR. It does not yet geometrically merge two independent railway networks or translate MSTS vehicle physics into an OpenBVE train definition.
+This is enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE route plus an ordered MSTS/OpenRails consist with basic vehicle metadata in one IR. It does not yet geometrically merge two independent railway networks or translate MSTS traction/cab/sound systems into an OpenBVE train definition.
 
 ## OpenBVE target
 
@@ -60,7 +63,7 @@ The first target backend exports a driveable path from the generic graph IR as a
 
 MSTS TDB edges enriched from `tsection.dat` carry exact section length, average gradient and signed curve radius when the section geometry is available. An end-to-end fixture verifies that a curved TDB section becomes OpenBVE `.Curve` with the expected radius and that observed TDB yaw wins when a reusable section definition has the opposite sign. Known straight MSTS sections are distinguished from unresolved curvature so they no longer generate a false unknown-curvature warning. PAT-only routes remain coarser because PAT stores service/path waypoints rather than the complete route track database.
 
-The target currently writes route CSV only. Composed rolling-stock assets, structured consists, cab, sound and other asset references remain in the RailWeave IR and trigger a diagnostic rather than being silently ignored.
+The target currently writes route CSV only. Composed rolling-stock assets, structured vehicle metadata and consists, cab, sound and other asset references remain in the RailWeave IR and trigger diagnostics rather than being silently ignored.
 
 ## Why BVE and MSTS first
 
