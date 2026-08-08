@@ -42,6 +42,15 @@ fn is_main_edge(edge: &TrackEdge) -> bool {
         .unwrap_or(false)
 }
 
+fn is_known_msts_straight(edge: &TrackEdge) -> bool {
+    edge.provenance
+        .as_ref()
+        .filter(|provenance| provenance.source_format == SourceFormat::MstsOpenRails)
+        .and_then(|provenance| provenance.source_id.as_deref())
+        .map(|source_id| source_id.contains(":geometry=straight"))
+        .unwrap_or(false)
+}
+
 fn select_driveable_path<'a>(
     project: &'a RailProject,
     diagnostics: &mut Vec<Diagnostic>,
@@ -296,6 +305,7 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
 
         let curve = normalize_optional(edge.curve_radius_m);
         if curve.is_none()
+            && !is_known_msts_straight(edge)
             && edge
                 .provenance
                 .as_ref()
@@ -477,7 +487,7 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "RW410_OPENBVE_INFERRED_LENGTH"));
-        assert!(exported
+        assert!(!exported
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "RW412_OPENBVE_UNKNOWN_CURVATURE"));
