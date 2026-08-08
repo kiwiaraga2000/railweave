@@ -118,7 +118,9 @@ fn compose(path: &Path, output: Option<&Path>) -> ExitCode {
     write_result(&composed, output, "Composed")
 }
 
-fn parse_output(args: &mut impl Iterator<Item = std::ffi::OsString>) -> Result<Option<std::ffi::OsString>, ExitCode> {
+fn parse_output(
+    args: &mut impl Iterator<Item = std::ffi::OsString>,
+) -> Result<Option<std::ffi::OsString>, ExitCode> {
     let mut output = None;
     while let Some(arg) = args.next() {
         match arg.to_string_lossy().as_ref() {
