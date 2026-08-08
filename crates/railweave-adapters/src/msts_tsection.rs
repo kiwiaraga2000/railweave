@@ -271,13 +271,16 @@ fn load_file(
 }
 
 fn child_ignore_ascii_case(parent: &Path, name: &str) -> Option<PathBuf> {
-    fs::read_dir(parent).ok()?.filter_map(Result::ok).find_map(|entry| {
-        entry
-            .file_name()
-            .to_str()
-            .filter(|candidate| candidate.eq_ignore_ascii_case(name))
-            .map(|_| entry.path())
-    })
+    fs::read_dir(parent)
+        .ok()?
+        .filter_map(Result::ok)
+        .find_map(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .filter(|candidate| candidate.eq_ignore_ascii_case(name))
+                .map(|_| entry.path())
+        })
 }
 
 fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
