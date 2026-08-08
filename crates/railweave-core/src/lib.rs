@@ -174,6 +174,28 @@ pub struct AssetRef {
     pub provenance: Provenance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RollingStockRole {
+    Engine,
+    Wagon,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsistMember {
+    pub asset_id: EntityId,
+    pub role: RollingStockRole,
+    pub flipped: bool,
+    pub source_uid: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollingStockConsist {
+    pub name: Option<String>,
+    pub members: Vec<ConsistMember>,
+    pub provenance: Provenance,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub title: Option<String>,
@@ -186,6 +208,8 @@ pub struct RailProject {
     pub metadata: ProjectMetadata,
     pub network: RailwayNetwork,
     pub assets: Vec<AssetRef>,
+    #[serde(default)]
+    pub consists: Vec<RollingStockConsist>,
 }
 
 impl RailProject {
