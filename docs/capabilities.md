@@ -5,7 +5,7 @@ RailWeave is intentionally explicit about partial support. Detection means that 
 | Format / stage | Detection | Support | Current data |
 | --- | --- | --- | --- |
 | BVE / OpenBVE | yes | partial source -> IR | CSV primary rail geometry from `Track.Curve` and `Track.Pitch`, `Track.Limit` speed state, and train/cab/sound source asset references |
-| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `tsection.dat` section lengths, `.pat` waypoint/path topology fallback, and `.con` rolling-stock source asset references |
+| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `tsection.dat` lengths/curves, `.pat` waypoint/path topology fallback, and `.con` rolling-stock source asset references |
 | Trainz | yes | no importer yet | — |
 | Train Simulator / RailWorks | yes | no importer yet | — |
 | Loksim3D | yes | no importer yet | — |
@@ -24,11 +24,11 @@ Known route gaps include auxiliary rails, switches, stations, signal logic, scen
 
 For route directories, RailWeave prefers a textual or UTF-16 `.tdb` Track Database when one is available. The importer reads MSTS `TrackNode`, `UiD`, `TrPins`, `TrVectorNode` and `TrVectorSections` data, normalizes the 2048 metre tile coordinate system, reuses junction/end points as graph nodes, and emits the route-wide vector network into the common IR.
 
-A TDB vector section identifies a `tsection.dat` section and stores the beginning coordinate and orientation of that section. RailWeave now finds nearby `tsection.dat` files, follows relative `include` directives, applies local section overrides, and uses standard straight/curve definitions to recover exact section lengths. Those lengths are attached to the corresponding IR edges and are also used to derive average edge gradient from the TDB endpoint elevations.
+A TDB vector section identifies a `tsection.dat` section and stores the beginning coordinate and orientation of that section. RailWeave searches route-local OpenRails data, route-level overrides and the install-level `GLOBAL/TSECTION.DAT` layout case-insensitively; relative `include` directives are followed and later route definitions override included/global sections. Standard straight/curve definitions provide exact section length and curve radius/angle. Section lengths are attached to IR edges and are also used to derive average edge gradient from TDB endpoint elevations.
 
-Curve radius/direction is deliberately not emitted yet. `SectionCurve` supplies radius and signed angle, but MSTS TDB vector flags/orientation also affect how the section is traversed. Until that transform is handled explicitly, RailWeave keeps `curve_radius_m` unknown instead of guessing a left/right curve and reports that loss to targets.
+For curved sections, the sign of `curve_radius_m` is resolved primarily from the observed change in TDB yaw (`AY`) between the start of a vector section and the following section or endpoint. This means a flipped placement can override an opposite sign in the reusable `tsection.dat` definition. When an observed yaw delta is unavailable, the signed section angle plus the TDB flip flag is used as the fallback. Known straight/curve state is retained in provenance, and an import diagnostic reports how many TDB edges were resolved.
 
-Compressed/binary TDB variants are not parsed yet. If a detected TDB cannot be handled and a supported PAT path is available, RailWeave reports the failed TDB import and falls back to PAT topology rather than silently dropping the route.
+Compressed/binary TDB variants are not parsed yet. Dynamic/custom track is supported only where its section geometry can be represented by the current `TrackSection` parser; more complicated MSTS transforms remain future work. If a detected TDB cannot be handled and a supported PAT path is available, RailWeave reports the failed TDB import and falls back to PAT topology rather than silently dropping the route.
 
 `.pat` import remains available directly. A PAT path contains `TrackPDP` waypoints and `TrPathNode` main/siding links; those are mapped into the same graph IR. If a route has multiple PAT files and PAT import is being used, RailWeave imports the first sorted candidate unless a specific `.pat` path is supplied.
 
@@ -57,7 +57,7 @@ The first target backend exports a driveable path from the generic graph IR as a
 - uses a 1 metre OpenBVE block length and reports any position quantization;
 - reports dropped branches, inferred geometry and other target loss explicitly.
 
-MSTS TDB edges enriched from `tsection.dat` can now carry exact section length and average gradient, but exact left/right curve reconstruction is still pending. Sections whose curvature is unknown are exported as straight chords with diagnostics. PAT-only routes are coarser still because PAT stores service/path waypoints rather than the complete route track database. Neither case is presented as lossless conversion.
+MSTS TDB edges enriched from `tsection.dat` now carry exact section length, average gradient and signed curve radius when the section geometry is available. An end-to-end fixture verifies that a curved TDB section becomes OpenBVE `.Curve` with the expected radius and that observed TDB yaw wins when a reusable section definition has the opposite sign. Sections whose geometry cannot be resolved are still exported conservatively and reported. PAT-only routes remain coarser because PAT stores service/path waypoints rather than the complete route track database.
 
 The target currently writes route CSV only. Composed rolling-stock, cab, sound and other asset references remain in the RailWeave IR and trigger a diagnostic rather than being silently ignored.
 
