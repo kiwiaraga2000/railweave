@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/railweave-core",
+    "crates/railweave-adapters",
+    "crates/railweave-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+repository = "https://github.com/kiwiaraga2000/railweave"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,13 @@
+[package]
+name = "railweave"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+railweave-core = { path = "../railweave-core" }
+railweave-adapters = { path = "../railweave-adapters" }
+
+[lints]
+workspace = true
