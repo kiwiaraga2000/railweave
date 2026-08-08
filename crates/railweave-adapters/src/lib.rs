@@ -1,6 +1,7 @@
 mod bve;
 mod detectors;
 mod msts;
+mod msts_consist;
 mod msts_curve;
 mod msts_tsection;
 
@@ -32,6 +33,7 @@ pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
         SourceFormat::BveOpenBve => bve::import(root),
         SourceFormat::MstsOpenRails => {
             let mut imported = msts::import(root)?;
+            msts_consist::enrich_consists(root, &mut imported);
             msts_curve::enrich_tdb_curves(root, &mut imported);
             Ok(imported)
         }
