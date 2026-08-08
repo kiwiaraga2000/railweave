@@ -270,13 +270,49 @@ fn load_file(
     }
 }
 
+fn child_ignore_ascii_case(parent: &Path, name: &str) -> Option<PathBuf> {
+    fs::read_dir(parent).ok()?.filter_map(Result::ok).find_map(|entry| {
+        entry
+            .file_name()
+            .to_str()
+            .filter(|candidate| candidate.eq_ignore_ascii_case(name))
+            .map(|_| entry.path())
+    })
+}
+
+fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
+    }
+}
+
 fn candidates(root: &Path) -> Vec<PathBuf> {
-    let search_root = if root.is_file() {
+    let route_root = if root.is_file() {
         root.parent().unwrap_or_else(|| Path::new("."))
     } else {
         root
     };
-    let mut paths: Vec<PathBuf> = entries(search_root)
+    let mut paths = Vec::new();
+
+    if let Some(install_root) = route_root.parent().and_then(Path::parent) {
+        if let Some(global) = child_ignore_ascii_case(install_root, "global") {
+            if let Some(tsection) = child_ignore_ascii_case(&global, "tsection.dat") {
+                push_unique(&mut paths, tsection);
+            }
+        }
+    }
+
+    if let Some(openrails) = child_ignore_ascii_case(route_root, "openrails") {
+        if let Some(tsection) = child_ignore_ascii_case(&openrails, "tsection.dat") {
+            push_unique(&mut paths, tsection);
+        }
+    }
+
+    if let Some(tsection) = child_ignore_ascii_case(route_root, "tsection.dat") {
+        push_unique(&mut paths, tsection);
+    }
+
+    let mut fallback: Vec<PathBuf> = entries(route_root)
         .into_iter()
         .filter(|path| {
             path.is_file()
@@ -287,7 +323,11 @@ fn candidates(root: &Path) -> Vec<PathBuf> {
                     .unwrap_or(false)
         })
         .collect();
-    paths.sort();
+    fallback.sort();
+    for path in fallback {
+        push_unique(&mut paths, path);
+    }
+
     paths
 }
 
@@ -380,6 +420,25 @@ TrackSection ( 3 SectionSize ( 1.5 0 ) SectionCurve ( 1000 -5 ) )
         let sections = load_section_geometry(&root.join("ROUTES").join("Demo"), &mut diagnostics);
         assert!((sections[&1].length_m - 10.0).abs() < 0.001);
         assert!((sections[&2].length_m - 25.0).abs() < 0.001);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn finds_install_level_global_tsection_case_insensitively() {
+        let root = fixture();
+        let global = root.join("gLoBaL");
+        let route = root.join("ROUTES").join("Demo");
+        fs::create_dir_all(&global).unwrap();
+        fs::create_dir_all(&route).unwrap();
+        fs::write(
+            global.join("TSECTION.DAT"),
+            "TrackSections ( 2 TrackSection ( 42 SectionSize ( 1.5 123 ) ) )",
+        )
+        .unwrap();
+
+        let mut diagnostics = Vec::new();
+        let sections = load_section_geometry(&route, &mut diagnostics);
+        assert!((sections[&42].length_m - 123.0).abs() < 0.001);
         fs::remove_dir_all(root).ok();
     }
 }
