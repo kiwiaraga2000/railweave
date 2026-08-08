@@ -31,9 +31,15 @@ fn scan(path: &Path) -> ExitCode {
 
     for (index, detection) in detections.iter().enumerate() {
         if index == 0 {
-            println!("Best match: {} ({}%)", detection.format, detection.confidence);
+            println!(
+                "Best match: {} ({}%)",
+                detection.format, detection.confidence
+            );
         } else {
-            println!("Alternative: {} ({}%)", detection.format, detection.confidence);
+            println!(
+                "Alternative: {} ({}%)",
+                detection.format, detection.confidence
+            );
         }
 
         for evidence in &detection.evidence {
