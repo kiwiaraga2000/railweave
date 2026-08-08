@@ -95,10 +95,11 @@ fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> Exi
         }
 
         println!(
-            "{verb} {} nodes, {} edges, {} assets -> {}",
+            "{verb} {} nodes, {} edges, {} assets, {} consists -> {}",
             result.project.network.nodes.len(),
             result.project.network.edges.len(),
             result.project.assets.len(),
+            result.project.consists.len(),
             output.display()
         );
         print_diagnostics(&result.diagnostics);
