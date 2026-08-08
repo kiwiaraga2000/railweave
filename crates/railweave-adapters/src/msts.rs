@@ -336,11 +336,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
     let mut result = ImportResult::new(RailProject::new());
 
     if let Some(path_file) = path_candidates.first() {
-        import_path_topology(
-            path_file,
-            &mut result.project,
-            &mut result.diagnostics,
-        )?;
+        import_path_topology(path_file, &mut result.project, &mut result.diagnostics)?;
         if path_candidates.len() > 1 {
             result.diagnostics.push(Diagnostic::new(
                 Severity::Warning,
@@ -437,7 +433,11 @@ TrackPath (
     fn imports_consist_as_rolling_stock_asset() {
         let root = fixture("msts-consist");
         let consist = root.join("ED4M.con");
-        fs::write(&consist, "SIMISA@@@@@@@@@@JINX0D0t______\nTrainCfg ( ED4M )\n").unwrap();
+        fs::write(
+            &consist,
+            "SIMISA@@@@@@@@@@JINX0D0t______\nTrainCfg ( ED4M )\n",
+        )
+        .unwrap();
 
         let imported = import_path(&consist).unwrap();
         assert!(imported.project.network.nodes.is_empty());
