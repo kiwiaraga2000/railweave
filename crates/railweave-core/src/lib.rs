@@ -196,6 +196,22 @@ pub struct RollingStockConsist {
     pub provenance: Provenance,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollingStockVehicle {
+    pub asset_id: EntityId,
+    pub name: Option<String>,
+    pub vehicle_type: Option<String>,
+    pub mass_kg: Option<f64>,
+    pub width_m: Option<f64>,
+    pub height_m: Option<f64>,
+    pub length_m: Option<f64>,
+    pub axle_count: Option<u32>,
+    pub wheel_count: Option<f64>,
+    pub brake_system_type: Option<String>,
+    pub brake_equipment_type: Option<String>,
+    pub max_brake_force_n: Option<f64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub title: Option<String>,
@@ -210,6 +226,8 @@ pub struct RailProject {
     pub assets: Vec<AssetRef>,
     #[serde(default)]
     pub consists: Vec<RollingStockConsist>,
+    #[serde(default)]
+    pub vehicles: Vec<RollingStockVehicle>,
 }
 
 impl RailProject {
