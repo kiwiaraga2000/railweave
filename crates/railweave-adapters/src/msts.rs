@@ -270,11 +270,9 @@ fn parse_tdb_vector_sections(tokens: &[String]) -> Vec<TdbVectorSection> {
             let Some(section_close) = matching_paren(tokens, section_open) else {
                 break;
             };
-            if let Some(section) = parse_tdb_vector_section_values(
-                tokens,
-                section_open + 1,
-                section_close,
-            ) {
+            if let Some(section) =
+                parse_tdb_vector_section_values(tokens, section_open + 1, section_close)
+            {
                 sections.push(section);
             }
             cursor = section_close + 1;
@@ -465,7 +463,11 @@ fn import_track_database(
             continue;
         }
         imported_vector_nodes += 1;
-        if node.pins.iter().any(|pin| pin.direction != 0 && pin.direction != 1) {
+        if node
+            .pins
+            .iter()
+            .any(|pin| pin.direction != 0 && pin.direction != 1)
+        {
             ignored_pin_directions = true;
         }
 
