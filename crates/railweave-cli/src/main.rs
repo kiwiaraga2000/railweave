@@ -67,8 +67,12 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
     if parent.as_os_str().is_empty() {
         return Ok(());
     }
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("failed to create output directory {}: {error}", parent.display()))
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "failed to create output directory {}: {error}",
+            parent.display()
+        )
+    })
 }
 
 fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> ExitCode {
@@ -138,7 +142,10 @@ fn export_openbve(path: &Path, output: Option<&Path>) -> ExitCode {
     let imported: ImportResult = match serde_json::from_str(&text) {
         Ok(imported) => imported,
         Err(error) => {
-            eprintln!("error: failed to parse RailWeave IR {}: {error}", path.display());
+            eprintln!(
+                "error: failed to parse RailWeave IR {}: {error}",
+                path.display()
+            );
             return ExitCode::from(1);
         }
     };
@@ -238,7 +245,10 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             };
             if target.to_string_lossy().to_ascii_lowercase() != "openbve" {
-                eprintln!("error: unsupported export target: {}", target.to_string_lossy());
+                eprintln!(
+                    "error: unsupported export target: {}",
+                    target.to_string_lossy()
+                );
                 return ExitCode::from(2);
             }
             let Some(path) = args.next() else {
