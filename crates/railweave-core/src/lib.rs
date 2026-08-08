@@ -1,10 +1,12 @@
+use serde::Serialize;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const IR_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum SourceFormat {
     BveOpenBve,
     MstsOpenRails,
@@ -97,14 +99,14 @@ pub fn walk_limited(root: &Path, max_depth: usize, max_entries: usize) -> Vec<Pa
     output
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Provenance {
     pub source_format: SourceFormat,
     pub source_path: PathBuf,
@@ -113,14 +115,15 @@ pub struct Provenance {
 
 pub type EntityId = u64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TrackNode {
     pub id: EntityId,
     pub position: Vec3,
     pub provenance: Option<Provenance>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Electrification {
     None,
     Overhead { voltage: u32, dc: bool },
@@ -128,7 +131,7 @@ pub enum Electrification {
     Other(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TrackEdge {
     pub id: EntityId,
     pub from: EntityId,
@@ -139,13 +142,14 @@ pub struct TrackEdge {
     pub provenance: Option<Provenance>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct RailwayNetwork {
     pub nodes: Vec<TrackNode>,
     pub edges: Vec<TrackEdge>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AssetKind {
     Mesh,
     Texture,
@@ -156,7 +160,7 @@ pub enum AssetKind {
     Other,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AssetRef {
     pub id: EntityId,
     pub kind: AssetKind,
@@ -164,9 +168,16 @@ pub struct AssetRef {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ProjectMetadata {
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct RailProject {
     pub schema_version: u32,
+    pub metadata: ProjectMetadata,
     pub network: RailwayNetwork,
     pub assets: Vec<AssetRef>,
 }
@@ -180,17 +191,72 @@ impl RailProject {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     Info,
     Warning,
     Error,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Diagnostic {
     pub severity: Severity,
     pub code: &'static str,
     pub message: String,
     pub provenance: Option<Provenance>,
 }
+
+impl Diagnostic {
+    pub fn new(severity: Severity, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            severity,
+            code,
+            message: message.into(),
+            provenance: None,
+        }
+    }
+
+    pub fn with_provenance(mut self, provenance: Provenance) -> Self {
+        self.provenance = Some(provenance);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub project: RailProject,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ImportResult {
+    pub fn new(project: RailProject) -> Self {
+        Self {
+            project,
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl ImportError {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ImportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ImportError {}

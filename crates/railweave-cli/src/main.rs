@@ -1,11 +1,14 @@
-use railweave_adapters::built_in_detectors;
-use railweave_core::Detection;
+use railweave_adapters::{detect_all, import_path};
+use railweave_core::{Detection, Severity};
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
 fn usage() {
-    eprintln!("RailWeave\n\nUsage:\n  railweave scan <path>\n");
+    eprintln!(
+        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n"
+    );
 }
 
 fn scan(path: &Path) -> ExitCode {
@@ -14,13 +17,7 @@ fn scan(path: &Path) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let mut detections: Vec<Detection> = built_in_detectors()
-        .into_iter()
-        .map(|detector| detector.detect(path))
-        .filter(|detection| detection.confidence > 0)
-        .collect();
-
-    detections.sort_by(|a, b| b.confidence.cmp(&a.confidence));
+    let detections: Vec<Detection> = detect_all(path);
 
     println!("Source: {}", path.display());
     if detections.is_empty() {
@@ -50,6 +47,62 @@ fn scan(path: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn import(path: &Path, output: Option<&Path>) -> ExitCode {
+    let imported = match import_path(path) {
+        Ok(imported) => imported,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let json = match serde_json::to_string_pretty(&imported) {
+        Ok(json) => json,
+        Err(error) => {
+            eprintln!("error: failed to serialize IR: {error}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if let Some(output) = output {
+        if let Some(parent) = output.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(error) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "error: failed to create output directory {}: {error}",
+                        parent.display()
+                    );
+                    return ExitCode::from(1);
+                }
+            }
+        }
+        if let Err(error) = fs::write(output, format!("{json}\n")) {
+            eprintln!("error: failed to write {}: {error}", output.display());
+            return ExitCode::from(1);
+        }
+
+        println!(
+            "Imported {} nodes, {} edges, {} assets -> {}",
+            imported.project.network.nodes.len(),
+            imported.project.network.edges.len(),
+            imported.project.assets.len(),
+            output.display()
+        );
+        for diagnostic in &imported.diagnostics {
+            let label = match diagnostic.severity {
+                Severity::Info => "info",
+                Severity::Warning => "warning",
+                Severity::Error => "error",
+            };
+            eprintln!("{label} [{}]: {}", diagnostic.code, diagnostic.message);
+        }
+    } else {
+        println!("{json}");
+    }
+
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let mut args = env::args_os().skip(1);
     let Some(command) = args.next() else {
@@ -68,6 +121,31 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
             scan(Path::new(&path))
+        }
+        "import" => {
+            let Some(path) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+
+            let mut output = None;
+            while let Some(arg) = args.next() {
+                match arg.to_string_lossy().as_ref() {
+                    "-o" | "--output" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("error: {} requires a path", arg.to_string_lossy());
+                            return ExitCode::from(2);
+                        };
+                        output = Some(value);
+                    }
+                    other => {
+                        eprintln!("error: unknown import option: {other}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+
+            import(Path::new(&path), output.as_deref().map(Path::new))
         }
         "-h" | "--help" | "help" => {
             usage();

@@ -5,36 +5,60 @@ RailWeave is a toolkit for importing, combining and exporting railway-simulator 
 The goal is not just `A -> B` conversion. RailWeave uses a common railway model so content from different simulators can be composed before export. A route might come from Trainz, rolling stock from MSTS/OpenRails, sounds from BVE, and the resulting package can be exported to OpenBVE.
 
 ```text
-Trainz ---------\
-MSTS/OpenRails --\
-BVE -------------+--> adapters --> RailWeave IR --> compose --> targets
-RailWorks -------/
-Loksim3D -------/
+Trainz ----------\
+MSTS/OpenRails ---\
+BVE ---------------+--> adapters --> RailWeave IR --> compose --> targets
+RailWorks ---------/
+Loksim3D ---------/
 ```
 
 OpenBVE is the first target.
 
 ## Status
 
-Very early development. The first milestone is to make the architecture real rather than build one large one-off converter:
+Very early development, but the first source-to-IR path is now real.
+
+Implemented:
 
 - versioned, simulator-independent railway IR
-- provenance and conversion diagnostics so lossy conversions are visible
-- source-format auto-detection
-- at least two independent source adapters
-- composition of route / rolling stock / cab / sounds / traffic from different sources
-- OpenBVE export as the first backend
+- provenance and conversion diagnostics
+- source-format auto-detection for BVE/OpenBVE, MSTS/OpenRails, Trainz, RailWorks and Loksim3D
+- BVE/OpenBVE CSV primary-track geometry import (`Curve`, `Pitch`, `Limit`)
+- MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology import
+- JSON IR output
+- fixture-based tests and CI
 
-## Planned CLI
+Not implemented yet:
+
+- full MSTS `.tdb` route geometry
+- Trainz route import
+- RailWorks or Loksim3D import
+- composition manifests
+- OpenBVE export
+
+See [`docs/capabilities.md`](docs/capabilities.md) for the exact support matrix.
+
+## CLI
+
+Detect a source:
 
 ```bash
 railweave scan /path/to/content
-railweave import /path/to/content -o project.railweave.json
-railweave compose project.toml -o composed.railweave.json
-railweave export openbve composed.railweave.json -o ~/Documents/OpenBVE\ Addons
 ```
 
-`scan` is being implemented first. It should identify a source without requiring the user to know which simulator layout it came from.
+Import supported source content into the versioned IR:
+
+```bash
+railweave import /path/to/content -o project.railweave.json
+```
+
+Without `-o`, the JSON is written to stdout.
+
+For an MSTS/OpenRails route containing several paths, pass a specific `.pat` file to select one:
+
+```bash
+railweave import ROUTES/MyRoute/PATHS/service.pat -o service.railweave.json
+```
 
 ## Design rules
 
@@ -44,4 +68,4 @@ railweave export openbve composed.railweave.json -o ~/Documents/OpenBVE\ Addons
 4. **Keep provenance.** Imported entities remember which source files/assets they came from.
 5. **Do not redistribute third-party assets.** RailWeave converts content locally; source-content licensing remains the user's responsibility.
 
-See [`docs/architecture.md`](docs/architecture.md) for the initial model.
+See [`docs/architecture.md`](docs/architecture.md) for the model and roadmap.
