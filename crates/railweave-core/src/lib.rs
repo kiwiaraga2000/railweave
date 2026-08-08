@@ -1,11 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const IR_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceFormat {
     BveOpenBve,
@@ -99,14 +99,14 @@ pub fn walk_limited(root: &Path, max_depth: usize, max_entries: usize) -> Vec<Pa
     output
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
     pub z: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Provenance {
     pub source_format: SourceFormat,
     pub source_path: PathBuf,
@@ -115,14 +115,14 @@ pub struct Provenance {
 
 pub type EntityId = u64;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackNode {
     pub id: EntityId,
     pub position: Vec3,
     pub provenance: Option<Provenance>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Electrification {
     None,
@@ -131,7 +131,7 @@ pub enum Electrification {
     Other(String),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackEdge {
     pub id: EntityId,
     pub from: EntityId,
@@ -142,13 +142,13 @@ pub struct TrackEdge {
     pub provenance: Option<Provenance>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RailwayNetwork {
     pub nodes: Vec<TrackNode>,
     pub edges: Vec<TrackEdge>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetKind {
     Mesh,
@@ -160,7 +160,7 @@ pub enum AssetKind {
     Other,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetRef {
     pub id: EntityId,
     pub kind: AssetKind,
@@ -168,13 +168,13 @@ pub struct AssetRef {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectMetadata {
     pub title: Option<String>,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RailProject {
     pub schema_version: u32,
     pub metadata: ProjectMetadata,
@@ -191,7 +191,7 @@ impl RailProject {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Info,
@@ -199,19 +199,23 @@ pub enum Severity {
     Error,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
     pub severity: Severity,
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
     pub provenance: Option<Provenance>,
 }
 
 impl Diagnostic {
-    pub fn new(severity: Severity, code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(
+        severity: Severity,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             severity,
-            code,
+            code: code.into(),
             message: message.into(),
             provenance: None,
         }
@@ -223,7 +227,7 @@ impl Diagnostic {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportResult {
     pub project: RailProject,
     pub diagnostics: Vec<Diagnostic>,
