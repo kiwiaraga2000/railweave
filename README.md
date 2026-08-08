@@ -26,19 +26,20 @@ Implemented:
 - BVE/OpenBVE CSV primary-track geometry import (`Curve`, `Pitch`, `Limit`)
 - BVE/OpenBVE train asset references from `train.dat`, panel files and `sound.cfg`
 - MSTS/OpenRails textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates
-- MSTS/OpenRails `tsection.dat` section-length enrichment, including relative `include` files and local overrides
+- MSTS/OpenRails `tsection.dat` section geometry, including relative `include` files, route overrides and install-level `GLOBAL/TSECTION.DAT`
+- MSTS curve radius and direction reconstruction from `tsection.dat` plus observed TDB yaw changes, with TDB flip state as fallback
 - MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology fallback
 - MSTS/OpenRails `.con` rolling-stock asset references
 - JSON IR import/output
 - TOML composition manifests that can combine supported raw sources and saved IR inputs
 - deterministic entity-ID remapping during composition
 - OpenBVE CSV route export from a selected driveable IR path
-- fixture-based cross-simulator and round-trip tests in CI
+- fixture-based cross-simulator and round-trip tests in CI, including MSTS TDB curve -> OpenBVE `Track.Curve`
 
 Not implemented yet:
 
-- exact MSTS curve reconstruction from `tsection.dat` plus TDB orientation/flip state
 - compressed/binary MSTS `.tdb` parsing
+- MSTS dynamic-track transforms beyond the currently supported section geometry forms
 - Trainz route import
 - RailWorks or Loksim3D import
 - deep rolling-stock/cab/sound conversion
@@ -63,7 +64,7 @@ railweave import /path/to/content -o project.railweave.json
 
 Without `-o`, the JSON is written to stdout.
 
-For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. When a nearby `tsection.dat` is available, section lengths are applied to TDB edges; relative `include` files are followed when present. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, RailWeave falls back to PAT topology and reports that fallback as a diagnostic.
+For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. It resolves section geometry from route-local `tsection.dat`, relative includes and the install-level `GLOBAL/TSECTION.DAT` layout used by MSTS/OpenRails. Exact section lengths are attached to TDB edges, and curved sections get a signed radius from the observed TDB yaw change when that orientation is available. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, RailWeave falls back to PAT topology and reports that fallback as a diagnostic.
 
 Compose several inputs:
 
