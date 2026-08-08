@@ -29,10 +29,10 @@ Implemented:
 - MSTS/OpenRails `tsection.dat` section geometry, including relative `include` files, route overrides and install-level `GLOBAL/TSECTION.DAT`
 - MSTS curve radius and direction reconstruction from `tsection.dat` plus observed TDB yaw changes, with TDB flip state as fallback
 - MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology fallback
-- MSTS/OpenRails `.con` rolling-stock asset references
+- MSTS/OpenRails `.con` parsing into ordered structured consists, with engine/wagon role, flip state, source UID and resolved `.eng` / `.wag` member assets
 - JSON IR import/output
 - TOML composition manifests that can combine supported raw sources and saved IR inputs
-- deterministic entity-ID remapping during composition
+- deterministic entity-ID remapping during composition, including consist member references
 - OpenBVE CSV route export from a selected driveable IR path
 - fixture-based cross-simulator and round-trip tests in CI, including MSTS TDB curve -> OpenBVE `Track.Curve`
 
@@ -40,9 +40,9 @@ Not implemented yet:
 
 - compressed/binary MSTS `.tdb` parsing
 - MSTS dynamic-track transforms beyond the currently supported section geometry forms
+- parsing full `.eng` / `.wag` vehicle physics, cab and sound configuration into structured IR
 - Trainz route import
 - RailWorks or Loksim3D import
-- deep rolling-stock/cab/sound conversion
 - merging several route networks into one network
 - exporting composed rolling-stock/cab/sound assets into an OpenBVE train package
 
@@ -66,6 +66,8 @@ Without `-o`, the JSON is written to stdout.
 
 For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. It resolves section geometry from route-local `tsection.dat`, relative includes and the install-level `GLOBAL/TSECTION.DAT` layout used by MSTS/OpenRails. Exact section lengths are attached to TDB edges, and curved sections get a signed radius from the observed TDB yaw change when that orientation is available. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, RailWeave falls back to PAT topology and reports that fallback as a diagnostic.
 
+MSTS `.con` files are not just opaque asset references anymore. RailWeave reads the ordered `Engine` / `Wagon` list, resolves the normal `TRAINS/TRAINSET/<folder>/<name>.eng|.wag` layout case-insensitively, and stores a structured consist whose members reference those rolling-stock assets while preserving role, orientation and source UID.
+
 Compose several inputs:
 
 ```bash
@@ -88,7 +90,7 @@ network = "route"
 assets = ["stock"]
 ```
 
-That example imports the route through the BVE/OpenBVE adapter and the rolling-stock reference through the MSTS/OpenRails adapter, then puts both into one RailWeave IR while preserving their provenance.
+That example imports the route through the BVE/OpenBVE adapter and the consist through the MSTS/OpenRails adapter, then puts both into one RailWeave IR while preserving provenance and remapping the consist's member asset IDs consistently.
 
 Inputs may also use a previously generated IR file:
 
@@ -103,7 +105,7 @@ Export the driveable network path to an OpenBVE CSV route:
 railweave export openbve composed.railweave.json -o route.csv
 ```
 
-The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
+The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, consists, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
 
 For an MSTS/OpenRails route containing several PAT services, a specific `.pat` file can still be imported directly when path topology rather than the full TDB network is wanted:
 
