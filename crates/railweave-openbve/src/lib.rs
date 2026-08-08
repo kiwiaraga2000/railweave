@@ -373,7 +373,7 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
         diagnostics.push(Diagnostic::new(
             Severity::Warning,
             "RW412_OPENBVE_UNKNOWN_CURVATURE",
-            "MSTS/OpenRails PAT topology does not contain full track-section curvature; unknown sections are currently exported as straight chords",
+            "one or more MSTS/OpenRails sections do not yet carry exact curve direction/radius; unknown sections are currently exported as straight chords",
         ));
     }
     if quantized {
@@ -439,6 +439,48 @@ mod tests {
         assert!(exported.csv.contains("100, .Curve 500; 0"));
         assert!(exported.csv.contains("200, .Limit 80"));
         assert!(exported.csv.lines().any(|line| line == "300"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn uses_tsection_lengths_when_exporting_msts_tdb() {
+        let root = fixture();
+        let openrails = root.join("OPENRAILS");
+        fs::create_dir(&openrails).unwrap();
+        fs::write(
+            openrails.join("tsection.dat"),
+            "TrackSections ( 3 TrackSection ( 1 SectionSize ( 1.5 75 ) ) TrackSection ( 2 SectionSize ( 1.5 125 ) ) )",
+        )
+        .unwrap();
+        fs::write(
+            root.join("route.tdb"),
+            r#"TrackDB (
+  TrackNodes ( 3
+    TrackNode ( 1 UiD ( 0 0 1 0 0 0 0 0 0 0 0 0 ) TrEndNode ( ) TrPins ( 1 0 TrPin ( 2 1 ) ) )
+    TrackNode ( 2
+      TrVectorNode ( TrVectorSections ( 2
+        1 1 0 0 1 0 1 00 0 0 0 0 0 0 0 0
+        2 1 0 0 2 0 1 00 0 0 75 0 0 0 0 0
+      ) )
+      TrPins ( 1 1 TrPin ( 1 0 ) TrPin ( 3 1 ) )
+    )
+    TrackNode ( 3 UiD ( 0 0 2 0 0 0 200 0 0 0 0 0 ) TrEndNode ( ) TrPins ( 1 0 TrPin ( 2 0 ) ) )
+  )
+)"#,
+        )
+        .unwrap();
+
+        let imported = import_path(&root).unwrap();
+        let exported = render_route(&imported.project).unwrap();
+        assert!(exported.csv.lines().any(|line| line == "200"));
+        assert!(!exported
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RW410_OPENBVE_INFERRED_LENGTH"));
+        assert!(exported
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RW412_OPENBVE_UNKNOWN_CURVATURE"));
         fs::remove_dir_all(root).ok();
     }
 }
