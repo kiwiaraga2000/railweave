@@ -183,7 +183,8 @@ fn member_path(con_file: &Path, member: &ParsedConsistMember) -> PathBuf {
     if let Some(trainset) = trainset_root(con_file) {
         let folder = child_ignore_ascii_case(&trainset, &member.folder)
             .unwrap_or_else(|| trainset.join(&member.folder));
-        return child_ignore_ascii_case(&folder, &file_name).unwrap_or_else(|| folder.join(file_name));
+        return child_ignore_ascii_case(&folder, &file_name)
+            .unwrap_or_else(|| folder.join(file_name));
     }
     con_file
         .parent()
