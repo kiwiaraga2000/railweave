@@ -140,6 +140,8 @@ pub struct TrackEdge {
     pub electrification: Option<Electrification>,
     pub speed_limit_kmh: Option<f64>,
     #[serde(default)]
+    pub length_m: Option<f64>,
+    #[serde(default)]
     pub curve_radius_m: Option<f64>,
     #[serde(default)]
     pub gradient_per_mille: Option<f64>,
