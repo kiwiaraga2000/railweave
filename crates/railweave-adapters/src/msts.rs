@@ -1,4 +1,5 @@
 use crate::detectors::{decode_text, entries, msts_pat_candidates};
+use crate::msts_tsection::{load_section_geometry, SectionGeometry};
 use railweave_core::{
     AssetKind, AssetRef, Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity,
     SourceFormat, TrackEdge, TrackNode, Vec3,
@@ -374,6 +375,7 @@ fn same_position(a: Vec3, b: Vec3) -> bool {
 
 fn import_track_database(
     tdb_file: &Path,
+    section_geometry: &HashMap<u32, SectionGeometry>,
     project: &mut RailProject,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(), ImportError> {
@@ -457,6 +459,8 @@ fn import_track_database(
     let mut emitted_edges = HashSet::new();
     let mut imported_vector_nodes = 0usize;
     let mut ignored_pin_directions = false;
+    let mut resolved_section_lengths = 0usize;
+    let mut unresolved_section_ids = HashSet::new();
 
     for node in &nodes {
         if node.sections.is_empty() {
@@ -482,12 +486,13 @@ fn import_track_database(
 
         for (section_index, section) in node.sections.iter().enumerate() {
             let position = local_position(&section.point, &origin);
-            if chain
-                .last()
-                .map(|(_, previous, _)| same_position(*previous, position))
-                .unwrap_or(false)
-            {
-                continue;
+            if let Some((_, previous, source_section)) = chain.last_mut() {
+                if same_position(*previous, position) {
+                    if source_section.is_none() {
+                        *source_section = Some(section_index);
+                    }
+                    continue;
+                }
             }
 
             let id = next_id;
@@ -535,12 +540,34 @@ fn import_track_database(
         }
 
         for pair_index in 0..chain.len() - 1 {
-            let (from, _, from_section) = chain[pair_index];
-            let (to, _, to_section) = chain[pair_index + 1];
+            let (from, from_position, from_section) = chain[pair_index];
+            let (to, to_position, _) = chain[pair_index + 1];
             if from == to || !emitted_edges.insert((from, to)) {
                 continue;
             }
-            let section_hint = from_section.or(to_section).unwrap_or(0);
+
+            let section = from_section.and_then(|index| node.sections.get(index));
+            let length_m = section.and_then(|section| {
+                let Some(geometry) = section_geometry.get(&section.section_index) else {
+                    unresolved_section_ids.insert(section.section_index);
+                    return None;
+                };
+                resolved_section_lengths += 1;
+                Some(geometry.length_m)
+            });
+            let gradient_per_mille = length_m
+                .filter(|length| *length > POSITION_EPSILON)
+                .map(|length| (to_position.y - from_position.y) * 1000.0 / length);
+
+            let source_id = if let (Some(section_index), Some(section)) = (from_section, section) {
+                format!(
+                    "TrackNode:{}:TrVectorSection:{}:section={}:shape={}",
+                    node.index, section_index, section.section_index, section.shape_index
+                )
+            } else {
+                format!("TrackNode:{}:connector", node.index)
+            };
+
             project.network.edges.push(TrackEdge {
                 id: next_id,
                 from,
@@ -548,13 +575,10 @@ fn import_track_database(
                 gauge_mm: None,
                 electrification: None,
                 speed_limit_kmh: None,
-                length_m: None,
+                length_m,
                 curve_radius_m: None,
-                gradient_per_mille: None,
-                provenance: Some(provenance(Some(format!(
-                    "TrackNode:{}:TrVectorSection:{}",
-                    node.index, section_hint
-                )))),
+                gradient_per_mille,
+                provenance: Some(provenance(Some(source_id))),
             });
             next_id += 1;
         }
@@ -575,11 +599,36 @@ fn import_track_database(
             Severity::Info,
             "RW213_MSTS_TDB_IMPORT_SCOPE",
             format!(
-                "imported route-wide TDB topology from {imported_vector_nodes} vector node(s); vector-section start coordinates are connected as straight chords until tsection.dat section geometry is parsed"
+                "imported route-wide TDB topology from {imported_vector_nodes} vector node(s); tsection lengths are applied when available, while exact curve reconstruction is still pending"
             ),
         )
         .with_provenance(provenance(None)),
     );
+    if resolved_section_lengths > 0 {
+        diagnostics.push(
+            Diagnostic::new(
+                Severity::Info,
+                "RW221_MSTS_TSECTION_EDGE_LENGTHS",
+                format!(
+                    "applied tsection.dat length metadata to {resolved_section_lengths} imported TDB edge(s)"
+                ),
+            )
+            .with_provenance(provenance(None)),
+        );
+    }
+    if !unresolved_section_ids.is_empty() && !section_geometry.is_empty() {
+        diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                "RW222_MSTS_TSECTION_SECTIONS_MISSING",
+                format!(
+                    "{} referenced TDB track section id(s) were not found in the available tsection.dat data",
+                    unresolved_section_ids.len()
+                ),
+            )
+            .with_provenance(provenance(None)),
+        );
+    }
     if ignored_pin_directions {
         diagnostics.push(
             Diagnostic::new(
@@ -777,7 +826,13 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
     let mut route_imported = false;
 
     if let Some(tdb_file) = tdb_candidates.first() {
-        match import_track_database(tdb_file, &mut result.project, &mut result.diagnostics) {
+        let section_geometry = load_section_geometry(root, &mut result.diagnostics);
+        match import_track_database(
+            tdb_file,
+            &section_geometry,
+            &mut result.project,
+            &mut result.diagnostics,
+        ) {
             Ok(()) => {
                 route_imported = true;
                 if tdb_candidates.len() > 1 {
@@ -904,6 +959,13 @@ TrackPath (
     #[test]
     fn imports_tdb_vector_section_geometry() {
         let root = fixture("msts-tdb");
+        let openrails = root.join("OPENRAILS");
+        fs::create_dir(&openrails).unwrap();
+        fs::write(
+            openrails.join("tsection.dat"),
+            "TrackSections ( 3 TrackSection ( 1 SectionSize ( 1.5 100 ) ) TrackSection ( 2 SectionSize ( 1.5 100 ) ) )",
+        )
+        .unwrap();
         let tdb = root.join("route.tdb");
         fs::write(
             &tdb,
@@ -957,9 +1019,21 @@ TrackDB (
         assert!((xs[1] - 100.0).abs() < 0.001);
         assert!((xs[2] - 200.0).abs() < 0.001);
         assert!(imported
+            .project
+            .network
+            .edges
+            .iter()
+            .all(|edge| edge.length_m == Some(100.0)));
+        assert!(imported.project.network.edges[0]
+            .provenance
+            .as_ref()
+            .and_then(|provenance| provenance.source_id.as_deref())
+            .unwrap_or_default()
+            .contains("section=1"));
+        assert!(imported
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code == "RW213_MSTS_TDB_IMPORT_SCOPE"));
+            .any(|diagnostic| diagnostic.code == "RW221_MSTS_TSECTION_EDGE_LENGTHS"));
         fs::remove_dir_all(root).ok();
     }
 
