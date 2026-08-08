@@ -1,11 +1,11 @@
-use crate::detectors::{decode_text, msts_pat_candidates};
+use crate::detectors::{decode_text, entries, msts_pat_candidates};
 use railweave_core::{
-    Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat,
-    TrackEdge, TrackNode, Vec3,
+    AssetKind, AssetRef, Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity,
+    SourceFormat, TrackEdge, TrackNode, Vec3,
 };
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const TILE_SIZE: f64 = 2048.0;
 
@@ -23,6 +23,22 @@ struct PathNode {
     next_main: u32,
     next_siding: u32,
     pdp_index: u32,
+}
+
+fn files_with_extension(root: &Path, extension: &str) -> Vec<PathBuf> {
+    let mut matches: Vec<PathBuf> = entries(root)
+        .into_iter()
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case(extension))
+                    .unwrap_or(false)
+        })
+        .collect();
+    matches.sort();
+    matches
 }
 
 fn stf_tokens(text: &str) -> Vec<String> {
@@ -130,15 +146,23 @@ fn parse_pat(text: &str) -> (Vec<Pdp>, Vec<PathNode>, Option<String>) {
     (pdps, nodes, path_name)
 }
 
-pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
-    let candidates = msts_pat_candidates(root);
-    let Some(path_file) = candidates.first() else {
-        return Err(ImportError::new(
-            "RW200_MSTS_PATH_NOT_FOUND",
-            "MSTS/OpenRails was detected, but no .pat file was found; full .tdb import is not implemented yet",
-        ));
-    };
+fn max_entity_id(project: &RailProject) -> u64 {
+    project
+        .network
+        .nodes
+        .iter()
+        .map(|node| node.id)
+        .chain(project.network.edges.iter().map(|edge| edge.id))
+        .chain(project.assets.iter().map(|asset| asset.id))
+        .max()
+        .unwrap_or(0)
+}
 
+fn import_path_topology(
+    path_file: &Path,
+    project: &mut RailProject,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(), ImportError> {
     let bytes = fs::read(path_file).map_err(|error| {
         ImportError::new(
             "RW201_MSTS_READ_FAILED",
@@ -168,7 +192,6 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         ));
     }
 
-    let mut project = RailProject::new();
     project.metadata.title = path_name.or_else(|| {
         path_file
             .file_stem()
@@ -177,23 +200,10 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
     });
     project.metadata.description =
         Some("Imported from MSTS/OpenRails PAT path topology".to_string());
-    let mut result = ImportResult::new(project);
-
-    if candidates.len() > 1 {
-        result.diagnostics.push(Diagnostic::new(
-            Severity::Warning,
-            "RW204_MSTS_MULTIPLE_PATHS",
-            format!(
-                "{} PAT files found; imported {}. Pass a specific .pat file to choose another path.",
-                candidates.len(),
-                path_file.display()
-            ),
-        ));
-    }
 
     let provenance = |source_id: Option<String>| Provenance {
         source_format: SourceFormat::MstsOpenRails,
-        source_path: path_file.clone(),
+        source_path: path_file.to_path_buf(),
         source_id,
     };
 
@@ -206,12 +216,12 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         .unwrap_or(0);
     let origin = &pdps[origin_index];
     let mut node_ids = Vec::with_capacity(path_nodes.len());
-    let mut next_id = 1_u64;
+    let mut next_id = max_entity_id(project).saturating_add(1);
 
     for (index, path_node) in path_nodes.iter().enumerate() {
         let Some(pdp) = pdps.get(path_node.pdp_index as usize) else {
             node_ids.push(None);
-            result.diagnostics.push(
+            diagnostics.push(
                 Diagnostic::new(
                     Severity::Warning,
                     "RW205_MSTS_BAD_PDP_REFERENCE",
@@ -228,7 +238,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         let id = next_id;
         next_id += 1;
         node_ids.push(Some(id));
-        result.project.network.nodes.push(TrackNode {
+        project.network.nodes.push(TrackNode {
             id,
             position: Vec3 {
                 x: (pdp.tile_x - origin.tile_x) as f64 * TILE_SIZE + pdp.x - origin.x,
@@ -254,7 +264,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
             }
             let target_index = target as usize;
             let Some(to_id) = node_ids.get(target_index).and_then(|id| *id) else {
-                result.diagnostics.push(
+                diagnostics.push(
                     Diagnostic::new(
                         Severity::Warning,
                         "RW206_MSTS_BAD_PATH_REFERENCE",
@@ -269,7 +279,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
                 continue;
             }
 
-            result.project.network.edges.push(TrackEdge {
+            project.network.edges.push(TrackEdge {
                 id: next_id,
                 from: from_id,
                 to: to_id,
@@ -282,14 +292,89 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         }
     }
 
-    result.diagnostics.push(
+    diagnostics.push(
         Diagnostic::new(
             Severity::Info,
             "RW207_MSTS_IMPORT_SCOPE",
-            "current MSTS/OpenRails importer converts PAT waypoint topology using 2048 m MSTS tiles; full TDB geometry, track sections, signalling and world scenery are future work",
+            "current MSTS/OpenRails route importer converts PAT waypoint topology using 2048 m MSTS tiles; full TDB geometry, track sections, signalling and world scenery are future work",
         )
         .with_provenance(provenance(None)),
     );
+
+    Ok(())
+}
+
+fn add_consist_asset(project: &mut RailProject, next_id: &mut u64, path: PathBuf) {
+    let name = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned);
+    project.assets.push(AssetRef {
+        id: *next_id,
+        kind: AssetKind::RollingStock,
+        name,
+        provenance: Provenance {
+            source_format: SourceFormat::MstsOpenRails,
+            source_path: path,
+            source_id: None,
+        },
+    });
+    *next_id = next_id.saturating_add(1);
+}
+
+pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
+    let path_candidates = msts_pat_candidates(root);
+    let consists = files_with_extension(root, "con");
+
+    if path_candidates.is_empty() && consists.is_empty() {
+        return Err(ImportError::new(
+            "RW200_MSTS_CONTENT_NOT_FOUND",
+            "MSTS/OpenRails was detected, but no supported .pat path or .con consist was found",
+        ));
+    }
+
+    let mut result = ImportResult::new(RailProject::new());
+
+    if let Some(path_file) = path_candidates.first() {
+        import_path_topology(
+            path_file,
+            &mut result.project,
+            &mut result.diagnostics,
+        )?;
+        if path_candidates.len() > 1 {
+            result.diagnostics.push(Diagnostic::new(
+                Severity::Warning,
+                "RW204_MSTS_MULTIPLE_PATHS",
+                format!(
+                    "{} PAT files found; imported {}. Pass a specific .pat file to choose another path.",
+                    path_candidates.len(),
+                    path_file.display()
+                ),
+            ));
+        }
+    }
+
+    let mut next_id = max_entity_id(&result.project).saturating_add(1);
+    for path in consists {
+        add_consist_asset(&mut result.project, &mut next_id, path);
+    }
+
+    if result.project.network.nodes.is_empty() && result.project.metadata.title.is_none() {
+        result.project.metadata.title = root
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned);
+        result.project.metadata.description =
+            Some("Imported from MSTS/OpenRails rolling-stock content".to_string());
+    }
+
+    if !result.project.assets.is_empty() {
+        result.diagnostics.push(Diagnostic::new(
+            Severity::Info,
+            "RW208_MSTS_ASSET_IMPORT_SCOPE",
+            "MSTS/OpenRails .con files are represented as rolling-stock source asset references; consist vehicles, physics, cabs and sounds are future work",
+        ));
+    }
 
     Ok(result)
 }
@@ -298,7 +383,6 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
 mod tests {
     use super::*;
     use crate::import_path;
-    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture(name: &str) -> PathBuf {
@@ -346,6 +430,20 @@ TrackPath (
         assert_eq!(imported.project.network.nodes.len(), 3);
         assert_eq!(imported.project.network.edges.len(), 2);
         assert!((imported.project.network.nodes[2].position.x - 1148.0).abs() < 0.001);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn imports_consist_as_rolling_stock_asset() {
+        let root = fixture("msts-consist");
+        let consist = root.join("ED4M.con");
+        fs::write(&consist, "SIMISA@@@@@@@@@@JINX0D0t______\nTrainCfg ( ED4M )\n").unwrap();
+
+        let imported = import_path(&consist).unwrap();
+        assert!(imported.project.network.nodes.is_empty());
+        assert_eq!(imported.project.assets.len(), 1);
+        assert_eq!(imported.project.assets[0].kind, AssetKind::RollingStock);
+        assert_eq!(imported.project.assets[0].name.as_deref(), Some("ED4M"));
         fs::remove_dir_all(root).ok();
     }
 }
