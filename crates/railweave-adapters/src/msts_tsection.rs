@@ -92,7 +92,11 @@ fn parse_u32(token: Option<&String>) -> Option<u32> {
     token?.parse().ok()
 }
 
-fn standard_section_geometry(tokens: &[String], open: usize, close: usize) -> Option<(u32, SectionGeometry)> {
+fn standard_section_geometry(
+    tokens: &[String],
+    open: usize,
+    close: usize,
+) -> Option<(u32, SectionGeometry)> {
     let section_index = parse_u32(tokens.get(open + 1))?;
     let body = &tokens[open + 2..close];
 
@@ -113,7 +117,11 @@ fn standard_section_geometry(tokens: &[String], open: usize, close: usize) -> Op
         .map(|length_m| (section_index, SectionGeometry { length_m }))
 }
 
-fn dynamic_section_geometry(tokens: &[String], open: usize, close: usize) -> Option<(u32, SectionGeometry)> {
+fn dynamic_section_geometry(
+    tokens: &[String],
+    open: usize,
+    close: usize,
+) -> Option<(u32, SectionGeometry)> {
     let body = &tokens[open + 1..close];
     let (curve_open, curve_close) = find_block(body, "sectioncurve")?;
     if curve_open != 1 {
@@ -220,13 +228,7 @@ fn load_file(
     for include in include_paths(&text) {
         let include_path = normalized_include(base, &include);
         if include_path.exists() {
-            load_file(
-                &include_path,
-                depth + 1,
-                visited,
-                sections,
-                diagnostics,
-            );
+            load_file(&include_path, depth + 1, visited, sections, diagnostics);
         } else {
             diagnostics.push(
                 Diagnostic::new(
@@ -312,10 +314,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "railweave-tsection-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("railweave-tsection-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }
