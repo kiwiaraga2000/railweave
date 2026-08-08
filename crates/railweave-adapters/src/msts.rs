@@ -1,7 +1,7 @@
 use crate::detectors::{decode_text, msts_pat_candidates};
 use railweave_core::{
-    Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat, TrackEdge,
-    TrackNode, Vec3,
+    Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat,
+    TrackEdge, TrackNode, Vec3,
 };
 use std::collections::HashSet;
 use std::fs;
