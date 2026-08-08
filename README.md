@@ -25,7 +25,8 @@ Implemented:
 - source-format auto-detection for BVE/OpenBVE, MSTS/OpenRails, Trainz, RailWorks and Loksim3D
 - BVE/OpenBVE CSV primary-track geometry import (`Curve`, `Pitch`, `Limit`)
 - BVE/OpenBVE train asset references from `train.dat`, panel files and `sound.cfg`
-- MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology import
+- MSTS/OpenRails textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates
+- MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology fallback
 - MSTS/OpenRails `.con` rolling-stock asset references
 - JSON IR import/output
 - TOML composition manifests that can combine supported raw sources and saved IR inputs
@@ -35,7 +36,8 @@ Implemented:
 
 Not implemented yet:
 
-- full MSTS `.tdb` route geometry
+- exact MSTS `tsection.dat` section geometry and curvature
+- compressed/binary MSTS `.tdb` parsing
 - Trainz route import
 - RailWorks or Loksim3D import
 - deep rolling-stock/cab/sound conversion
@@ -59,6 +61,8 @@ railweave import /path/to/content -o project.railweave.json
 ```
 
 Without `-o`, the JSON is written to stdout.
+
+For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, RailWeave prefers the route-wide track database. If the textual/UTF-16 TDB cannot be parsed but a supported PAT path is present, it falls back to PAT topology and reports that fallback as a diagnostic.
 
 Compose several inputs:
 
@@ -99,7 +103,7 @@ railweave export openbve composed.railweave.json -o route.csv
 
 The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
 
-For an MSTS/OpenRails route containing several paths, pass a specific `.pat` file to select one:
+For an MSTS/OpenRails route containing several PAT services, a specific `.pat` file can still be imported directly when path topology rather than the full TDB network is wanted:
 
 ```bash
 railweave import ROUTES/MyRoute/PATHS/service.pat -o service.railweave.json
