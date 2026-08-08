@@ -1,6 +1,7 @@
 mod bve;
 mod detectors;
 mod msts;
+mod msts_tsection;
 
 use railweave_core::{ImportError, ImportResult, SourceFormat};
 use std::path::Path;
