@@ -5,7 +5,7 @@ RailWeave is intentionally explicit about partial support. Detection means that 
 | Format / stage | Detection | Support | Current data |
 | --- | --- | --- | --- |
 | BVE / OpenBVE | yes | partial source -> IR | CSV primary rail geometry from `Track.Curve` and `Track.Pitch`, `Track.Limit` speed state, and train/cab/sound source asset references |
-| MSTS / OpenRails | yes | partial source -> IR | textual or UTF-16 `.pat` waypoint topology with main/siding links, plus `.con` rolling-stock source asset references |
+| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `.pat` waypoint/path topology fallback, and `.con` rolling-stock source asset references |
 | Trainz | yes | no importer yet | — |
 | Train Simulator / RailWorks | yes | no importer yet | — |
 | Loksim3D | yes | no importer yet | — |
@@ -22,13 +22,15 @@ Known route gaps include auxiliary rails, switches, stations, signal logic, scen
 
 ## MSTS / OpenRails
 
-The route importer currently reads `.pat` files. A PAT path contains `TrackPDP` waypoints and `TrPathNode` links; RailWeave maps those links into the common graph IR. MSTS world tiles are normalized into local coordinates using a 2048 metre tile size.
+For route directories, RailWeave now prefers a textual or UTF-16 `.tdb` Track Database when one is available. The importer reads MSTS `TrackNode`, `UiD`, `TrPins`, `TrVectorNode` and `TrVectorSections` data, normalizes the 2048 metre tile coordinate system, reuses junction/end points as graph nodes, and emits the route-wide vector network into the common IR.
 
-`.con` files can also be imported as rolling-stock asset references. A direct `.con` input therefore produces a valid asset-only RailWeave project that can be combined with a network from another source.
+A TDB vector section identifies a `tsection.dat` section and stores the beginning coordinate and orientation of that section. RailWeave currently preserves the section/shape identifiers in provenance and connects those coordinates as straight chords. Exact standard/dynamic track-section length and curvature from `tsection.dat` are not parsed yet, so this stage is route-wide topology and sampled geometry rather than a lossless reconstruction of every rail arc.
 
-PAT import is path topology, not the complete route track database. Full `.tdb` / track-section geometry, consist vehicles, physics, cabs, sounds, world scenery, signalling and route-wide infrastructure remain future work.
+Compressed/binary TDB variants are not parsed yet. If a detected TDB cannot be handled and a supported PAT path is available, RailWeave reports the failed TDB import and falls back to PAT topology rather than silently dropping the route.
 
-If a route directory contains multiple `.pat` files, RailWeave currently imports the first sorted candidate and reports a diagnostic. Passing a specific `.pat` path selects it directly.
+`.pat` import remains available directly. A PAT path contains `TrackPDP` waypoints and `TrPathNode` main/siding links; those are mapped into the same graph IR. If a route has multiple PAT files and PAT import is being used, RailWeave imports the first sorted candidate unless a specific `.pat` path is supplied.
+
+`.con` files can also be imported as rolling-stock asset references. A direct `.con` input therefore produces a valid asset-only RailWeave project that can be combined with a network from another source. Consist vehicles, physics, cabs, sounds, world scenery and signalling remain future work.
 
 ## Composition
 
@@ -47,13 +49,13 @@ This is enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE 
 The first target backend exports a driveable path from the generic graph IR as an OpenBVE CSV route. It:
 
 - selects a deterministic entry path through the graph;
-- prefers an MSTS/OpenRails edge marked `main` when a path node branches;
+- prefers an MSTS/OpenRails edge marked `main` when PAT path provenance identifies a branch as the main path;
 - exports route gauge, `Track.Curve`, `Track.Pitch` and `Track.Limit` state when represented by the IR;
 - uses source segment lengths when available and otherwise approximates length from node coordinates;
 - uses a 1 metre OpenBVE block length and reports any position quantization;
 - reports dropped branches, inferred geometry and other target loss explicitly.
 
-MSTS `.pat` files do not contain full track-section geometry, so PAT-only routes are currently exported as straight chords between path waypoints with diagnostics. This is deliberately not presented as a lossless conversion.
+MSTS geometry that has not yet been enriched from `tsection.dat` has unknown exact curvature, so those sections are currently exported as straight chords with diagnostics. PAT-only routes are coarser still because PAT stores service/path waypoints rather than the complete route track database. Neither case is presented as lossless conversion.
 
 The target currently writes route CSV only. Composed rolling-stock, cab, sound and other asset references remain in the RailWeave IR and trigger a diagnostic rather than being silently ignored.
 
