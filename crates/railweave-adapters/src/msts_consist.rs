@@ -1,13 +1,14 @@
 use crate::detectors::{decode_text, entries};
 use railweave_core::{
-    AssetKind, AssetRef, Diagnostic, ImportResult, Provenance, Severity, SourceFormat,
+    AssetKind, AssetRef, ConsistMember as IrConsistMember, Diagnostic, ImportResult, Provenance,
+    RollingStockConsist, RollingStockRole, Severity, SourceFormat,
 };
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ConsistMember {
+struct ParsedConsistMember {
     name: String,
     folder: String,
     is_engine: bool,
@@ -86,7 +87,7 @@ fn find_block(tokens: &[String], name: &str) -> Option<(usize, usize)> {
     None
 }
 
-fn parse_member(tokens: &[String], is_engine: bool) -> Option<ConsistMember> {
+fn parse_member(tokens: &[String], is_engine: bool) -> Option<ParsedConsistMember> {
     let data_name = if is_engine { "enginedata" } else { "wagondata" };
     let (data_open, data_close) = find_block(tokens, data_name)?;
     if data_close <= data_open + 2 {
@@ -99,7 +100,7 @@ fn parse_member(tokens: &[String], is_engine: bool) -> Option<ConsistMember> {
         .and_then(|(open, _)| tokens.get(open + 1))
         .and_then(|value| value.parse().ok());
 
-    Some(ConsistMember {
+    Some(ParsedConsistMember {
         name,
         folder,
         is_engine,
@@ -108,7 +109,7 @@ fn parse_member(tokens: &[String], is_engine: bool) -> Option<ConsistMember> {
     })
 }
 
-fn parse_members(text: &str) -> Vec<ConsistMember> {
+fn parse_members(text: &str) -> Vec<ParsedConsistMember> {
     let tokens = stf_tokens(text);
     let mut members = Vec::new();
     let mut cursor = 0usize;
@@ -176,11 +177,13 @@ fn trainset_root(con_file: &Path) -> Option<PathBuf> {
     None
 }
 
-fn member_path(con_file: &Path, member: &ConsistMember) -> PathBuf {
+fn member_path(con_file: &Path, member: &ParsedConsistMember) -> PathBuf {
     let extension = if member.is_engine { "eng" } else { "wag" };
     let file_name = format!("{}.{}", member.name, extension);
     if let Some(trainset) = trainset_root(con_file) {
-        return trainset.join(&member.folder).join(file_name);
+        let folder = child_ignore_ascii_case(&trainset, &member.folder)
+            .unwrap_or_else(|| trainset.join(&member.folder));
+        return child_ignore_ascii_case(&folder, &file_name).unwrap_or_else(|| folder.join(file_name));
     }
     con_file
         .parent()
@@ -241,7 +244,8 @@ pub(crate) fn enrich_consists(root: &Path, result: &mut ImportResult) {
         let consist_name = con_file
             .file_stem()
             .and_then(|name| name.to_str())
-            .unwrap_or("consist");
+            .map(str::to_owned);
+        let mut ir_members = Vec::new();
 
         for (index, member) in members.iter().enumerate() {
             parsed_members += 1;
@@ -262,25 +266,50 @@ pub(crate) fn enrich_consists(root: &Path, result: &mut ImportResult) {
                 continue;
             }
 
-            let role = if member.is_engine { "engine" } else { "wagon" };
+            let asset_id = next_id;
+            next_id = next_id.saturating_add(1);
+            let role = if member.is_engine {
+                RollingStockRole::Engine
+            } else {
+                RollingStockRole::Wagon
+            };
+            let role_name = if member.is_engine { "engine" } else { "wagon" };
             let uid = member
                 .uid
                 .map(|uid| uid.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             result.project.assets.push(AssetRef {
-                id: next_id,
+                id: asset_id,
                 kind: AssetKind::RollingStock,
                 name: Some(format!("{}/{}", member.folder, member.name)),
                 provenance: Provenance {
                     source_format: SourceFormat::MstsOpenRails,
                     source_path: path,
                     source_id: Some(format!(
-                        "consist={consist_name}:member={index}:role={role}:uid={uid}:flipped={}",
+                        "consist={}:member={index}:role={role_name}:uid={uid}:flipped={}",
+                        consist_name.as_deref().unwrap_or("consist"),
                         member.flipped
                     )),
                 },
             });
-            next_id = next_id.saturating_add(1);
+            ir_members.push(IrConsistMember {
+                asset_id,
+                role,
+                flipped: member.flipped,
+                source_uid: member.uid,
+            });
+        }
+
+        if !ir_members.is_empty() {
+            result.project.consists.push(RollingStockConsist {
+                name: consist_name,
+                members: ir_members,
+                provenance: Provenance {
+                    source_format: SourceFormat::MstsOpenRails,
+                    source_path: con_file,
+                    source_id: Some("TrainCfg".to_string()),
+                },
+            });
         }
     }
 
@@ -289,7 +318,7 @@ pub(crate) fn enrich_consists(root: &Path, result: &mut ImportResult) {
             Severity::Info,
             "RW225_MSTS_CONSIST_MEMBERS",
             format!(
-                "resolved {parsed_members} ordered member reference(s) from {consist_count} MSTS consist file(s); member order, engine/wagon role and flip state are preserved in provenance"
+                "resolved {parsed_members} ordered member reference(s) from {consist_count} MSTS consist file(s); member order, engine/wagon role and flip state are represented structurally in the IR"
             ),
         ));
     }
@@ -363,16 +392,56 @@ Wagon ( Flip ( ) WagonData ( Trailer EMU ) UiD ( 2 ) )
         let mut result = ImportResult::new(RailProject::new());
         enrich_consists(&root, &mut result);
         assert_eq!(result.project.assets.len(), 2);
+        assert_eq!(result.project.consists.len(), 1);
+        assert_eq!(result.project.consists[0].members.len(), 2);
+        assert_eq!(
+            result.project.consists[0].members[0].role,
+            RollingStockRole::Engine
+        );
+        assert_eq!(
+            result.project.consists[0].members[1].role,
+            RollingStockRole::Wagon
+        );
+        assert!(result.project.consists[0].members[1].flipped);
+        assert_eq!(
+            result.project.consists[0].members[0].asset_id,
+            result.project.assets[0].id
+        );
+        assert_eq!(
+            result.project.consists[0].members[1].asset_id,
+            result.project.assets[1].id
+        );
         assert!(result.project.assets[0]
             .provenance
             .source_path
             .ends_with("TRAINS/TRAINSET/EMU/Motor.eng"));
-        assert!(result.project.assets[1]
+        assert!(!result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RW226_MSTS_CONSIST_MEMBER_MISSING"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn resolves_member_paths_case_insensitively() {
+        let root = fixture();
+        let consists = root.join("TrAiNs").join("CoNsIsTs");
+        let trainset = root.join("TrAiNs").join("TrAiNsEt").join("eMu");
+        fs::create_dir_all(&consists).unwrap();
+        fs::create_dir_all(&trainset).unwrap();
+        fs::write(
+            consists.join("demo.con"),
+            "Train ( TrainCfg ( Demo Engine ( EngineData ( motor EMU ) ) ) )",
+        )
+        .unwrap();
+        fs::write(trainset.join("MOTOR.ENG"), "Wagon ( Motor )").unwrap();
+
+        let mut result = ImportResult::new(RailProject::new());
+        enrich_consists(&root, &mut result);
+        assert!(result.project.assets[0]
             .provenance
-            .source_id
-            .as_deref()
-            .unwrap_or_default()
-            .contains("member=1:role=wagon:uid=2:flipped=true"));
+            .source_path
+            .ends_with("TrAiNs/TrAiNsEt/eMu/MOTOR.ENG"));
         assert!(!result
             .diagnostics
             .iter()
