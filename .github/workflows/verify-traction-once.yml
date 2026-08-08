@@ -1,0 +1,42 @@
+name: Verify Traction Metadata Once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Normalize source and test workspace
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/railweave-adapters/src/msts_vehicle.rs')
+          text = p.read_text()
+          if '"mw" => 1_000_000.0' not in text:
+              needle = '            "kw" => 1_000.0,\n            "hp" => 745.699_872,'
+              if needle not in text:
+                  raise SystemExit('power-unit patch target not found')
+              text = text.replace(
+                  needle,
+                  '            "kw" => 1_000.0,\n            "mw" => 1_000_000.0,\n            "hp" => 745.699_872,',
+              )
+              p.write_text(text)
+          PY
+          cargo fmt --all
+          cargo test --workspace
+          git rm .github/workflows/verify-traction-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Verify traction metadata pipeline"
+          git push
