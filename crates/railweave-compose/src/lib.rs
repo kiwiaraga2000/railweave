@@ -1,7 +1,7 @@
 use railweave_adapters::import_path;
 use railweave_core::{Diagnostic, ImportResult, Severity, IR_SCHEMA_VERSION};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -171,6 +171,7 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
     let mut output = ImportResult::new(network_input.project.clone());
     output.project.metadata = metadata_input.project.metadata.clone();
     output.project.assets.clear();
+    output.project.consists.clear();
 
     let asset_sources: Vec<&str> = if manifest.compose.assets.is_empty() {
         vec![manifest.compose.network.as_str()]
@@ -181,11 +182,31 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
     let mut next_id = max_entity_id(&output).saturating_add(1);
     for source_name in &asset_sources {
         let source = require_input(&inputs, source_name)?;
+        let mut asset_id_map = HashMap::new();
         for asset in &source.project.assets {
             let mut asset = asset.clone();
+            let source_id = asset.id;
             asset.id = next_id;
             next_id = next_id.saturating_add(1);
+            asset_id_map.insert(source_id, asset.id);
             output.project.assets.push(asset);
+        }
+
+        for consist in &source.project.consists {
+            let mut consist = consist.clone();
+            for member in &mut consist.members {
+                let Some(remapped) = asset_id_map.get(&member.asset_id).copied() else {
+                    return Err(ComposeError::new(
+                        "RW311_CONSIST_MEMBER_ASSET",
+                        format!(
+                            "input {source_name:?} consist {:?} references missing asset {}",
+                            consist.name, member.asset_id
+                        ),
+                    ));
+                };
+                member.asset_id = remapped;
+            }
+            output.project.consists.push(consist);
         }
     }
 
@@ -196,7 +217,7 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
         Severity::Info,
         "RW300_COMPOSED",
         format!(
-            "composed network from {:?}, metadata from {:?}, assets from [{}]",
+            "composed network from {:?}, metadata from {:?}, assets/consists from [{}]",
             manifest.compose.network,
             metadata_name,
             asset_sources.join(", ")
@@ -210,7 +231,8 @@ pub fn compose_manifest(path: &Path) -> Result<ImportResult, ComposeError> {
 mod tests {
     use super::*;
     use railweave_core::{
-        AssetKind, AssetRef, ImportResult, Provenance, RailProject, SourceFormat, TrackNode, Vec3,
+        AssetKind, AssetRef, ConsistMember, ImportResult, Provenance, RailProject,
+        RollingStockConsist, RollingStockRole, SourceFormat, TrackNode, Vec3,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -226,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn composes_network_and_assets_from_different_inputs() {
+    fn composes_network_assets_and_consists_from_different_inputs() {
         let root = fixture();
 
         let mut route = RailProject::new();
@@ -250,11 +272,43 @@ mod tests {
         stock.assets.push(AssetRef {
             id: 1,
             kind: AssetKind::RollingStock,
+            name: Some("ED4M-head".to_string()),
+            provenance: Provenance {
+                source_format: SourceFormat::MstsOpenRails,
+                source_path: PathBuf::from("ED4M-head.eng"),
+                source_id: None,
+            },
+        });
+        stock.assets.push(AssetRef {
+            id: 2,
+            kind: AssetKind::RollingStock,
+            name: Some("ED4M-trailer".to_string()),
+            provenance: Provenance {
+                source_format: SourceFormat::MstsOpenRails,
+                source_path: PathBuf::from("ED4M-trailer.wag"),
+                source_id: None,
+            },
+        });
+        stock.consists.push(RollingStockConsist {
             name: Some("ED4M".to_string()),
+            members: vec![
+                ConsistMember {
+                    asset_id: 1,
+                    role: RollingStockRole::Engine,
+                    flipped: false,
+                    source_uid: Some(10),
+                },
+                ConsistMember {
+                    asset_id: 2,
+                    role: RollingStockRole::Wagon,
+                    flipped: true,
+                    source_uid: Some(11),
+                },
+            ],
             provenance: Provenance {
                 source_format: SourceFormat::MstsOpenRails,
                 source_path: PathBuf::from("ED4M.con"),
-                source_id: None,
+                source_id: Some("TrainCfg".to_string()),
             },
         });
         fs::write(
@@ -282,9 +336,23 @@ assets = ["route", "stock"]
 
         let composed = compose_manifest(&root.join("railweave.toml")).unwrap();
         assert_eq!(composed.project.network.nodes.len(), 1);
-        assert_eq!(composed.project.assets.len(), 1);
-        assert_eq!(composed.project.assets[0].name.as_deref(), Some("ED4M"));
+        assert_eq!(composed.project.assets.len(), 2);
+        assert_eq!(composed.project.consists.len(), 1);
+        assert_eq!(composed.project.consists[0].members.len(), 2);
         assert!(composed.project.assets[0].id > 1);
+        assert_eq!(
+            composed.project.consists[0].members[0].asset_id,
+            composed.project.assets[0].id
+        );
+        assert_eq!(
+            composed.project.consists[0].members[1].asset_id,
+            composed.project.assets[1].id
+        );
+        assert_eq!(
+            composed.project.consists[0].members[1].role,
+            RollingStockRole::Wagon
+        );
+        assert!(composed.project.consists[0].members[1].flipped);
         fs::remove_dir_all(root).ok();
     }
 }
