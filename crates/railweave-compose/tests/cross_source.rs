@@ -60,8 +60,7 @@ assets = ["stock"]
         SourceFormat::MstsOpenRails
     );
     assert!(composed.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "RW300_COMPOSED"
-            && diagnostic.message.contains("network from \"route\"")
+        diagnostic.code == "RW300_COMPOSED" && diagnostic.message.contains("network from \"route\"")
     }));
 
     fs::remove_dir_all(root).ok();
