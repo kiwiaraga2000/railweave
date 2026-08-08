@@ -30,9 +30,10 @@ Implemented:
 - MSTS curve radius and direction reconstruction from `tsection.dat` plus observed TDB yaw changes, with TDB flip state as fallback
 - MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology fallback
 - MSTS/OpenRails `.con` parsing into ordered structured consists, with engine/wagon role, flip state, source UID and resolved `.eng` / `.wag` member assets
+- basic MSTS/OpenRails `.eng` / `.wag` vehicle metadata: name/type, mass, dimensions, axle/wheel counts and brake metadata, with MSTS unit conversion to SI
 - JSON IR import/output
 - TOML composition manifests that can combine supported raw sources and saved IR inputs
-- deterministic entity-ID remapping during composition, including consist member references
+- deterministic entity-ID remapping during composition, including vehicle and consist member references
 - OpenBVE CSV route export from a selected driveable IR path
 - fixture-based cross-simulator and round-trip tests in CI, including MSTS TDB curve -> OpenBVE `Track.Curve`
 
@@ -40,7 +41,7 @@ Not implemented yet:
 
 - compressed/binary MSTS `.tdb` parsing
 - MSTS dynamic-track transforms beyond the currently supported section geometry forms
-- parsing full `.eng` / `.wag` vehicle physics, cab and sound configuration into structured IR
+- deep MSTS traction/motor physics, cab and sound conversion
 - Trainz route import
 - RailWorks or Loksim3D import
 - merging several route networks into one network
@@ -68,6 +69,8 @@ For an MSTS/OpenRails route directory containing both `.tdb` and `.pat` data, Ra
 
 MSTS `.con` files are not just opaque asset references anymore. RailWeave reads the ordered `Engine` / `Wagon` list, resolves the normal `TRAINS/TRAINSET/<folder>/<name>.eng|.wag` layout case-insensitively, and stores a structured consist whose members reference those rolling-stock assets while preserving role, orientation and source UID.
 
+For resolved `.eng` and `.wag` members, RailWeave also reads the `Wagon` block into structured vehicle metadata. The current fields include `Name`, `Type`, `Mass`, `Size`, `ORTSNumberAxles`, `NumWheels`, `BrakeSystemType`, `BrakeEquipmentType` and `MaxBrakeForce`. MSTS/OpenRails mass, distance and force suffixes are normalized to SI; unsupported units produce diagnostics instead of guessed values.
+
 Compose several inputs:
 
 ```bash
@@ -90,7 +93,7 @@ network = "route"
 assets = ["stock"]
 ```
 
-That example imports the route through the BVE/OpenBVE adapter and the consist through the MSTS/OpenRails adapter, then puts both into one RailWeave IR while preserving provenance and remapping the consist's member asset IDs consistently.
+That example imports the route through the BVE/OpenBVE adapter and the consist through the MSTS/OpenRails adapter, then puts both into one RailWeave IR while preserving provenance and remapping vehicle/consist asset IDs consistently.
 
 Inputs may also use a previously generated IR file:
 
@@ -105,7 +108,7 @@ Export the driveable network path to an OpenBVE CSV route:
 railweave export openbve composed.railweave.json -o route.csv
 ```
 
-The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, consists, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
+The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, structured vehicle metadata, consists, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
 
 For an MSTS/OpenRails route containing several PAT services, a specific `.pat` file can still be imported directly when path topology rather than the full TDB network is wanted:
 
