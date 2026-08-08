@@ -1,6 +1,7 @@
 mod bve;
 mod detectors;
 mod msts;
+mod msts_curve;
 mod msts_tsection;
 
 use railweave_core::{ImportError, ImportResult, SourceFormat};
@@ -29,7 +30,11 @@ pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
 
     match best.format {
         SourceFormat::BveOpenBve => bve::import(root),
-        SourceFormat::MstsOpenRails => msts::import(root),
+        SourceFormat::MstsOpenRails => {
+            let mut imported = msts::import(root)?;
+            msts_curve::enrich_tdb_curves(root, &mut imported);
+            Ok(imported)
+        }
         format => Err(ImportError::new(
             "RW003_IMPORT_NOT_IMPLEMENTED",
             format!("{format} was detected, but its source-to-IR importer is not implemented yet"),
