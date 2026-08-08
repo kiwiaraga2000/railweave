@@ -1,6 +1,7 @@
 use railweave_adapters::{detect_all, import_path};
 use railweave_compose::compose_manifest;
 use railweave_core::{Detection, ImportResult, Severity};
+use railweave_openbve::render_route;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -8,8 +9,19 @@ use std::process::ExitCode;
 
 fn usage() {
     eprintln!(
-        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n  railweave compose <manifest.toml> [-o <composed.railweave.json>]\n"
+        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n  railweave compose <manifest.toml> [-o <composed.railweave.json>]\n  railweave export openbve <project.railweave.json> [-o <route.csv>]\n"
     );
+}
+
+fn print_diagnostics(diagnostics: &[railweave_core::Diagnostic]) {
+    for diagnostic in diagnostics {
+        let label = match diagnostic.severity {
+            Severity::Info => "info",
+            Severity::Warning => "warning",
+            Severity::Error => "error",
+        };
+        eprintln!("{label} [{}]: {}", diagnostic.code, diagnostic.message);
+    }
 }
 
 fn scan(path: &Path) -> ExitCode {
@@ -48,6 +60,17 @@ fn scan(path: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn ensure_parent(path: &Path) -> Result<(), String> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create output directory {}: {error}", parent.display()))
+}
+
 fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> ExitCode {
     let json = match serde_json::to_string_pretty(result) {
         Ok(json) => json,
@@ -58,16 +81,9 @@ fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> Exi
     };
 
     if let Some(output) = output {
-        if let Some(parent) = output.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(error) = fs::create_dir_all(parent) {
-                    eprintln!(
-                        "error: failed to create output directory {}: {error}",
-                        parent.display()
-                    );
-                    return ExitCode::from(1);
-                }
-            }
+        if let Err(error) = ensure_parent(output) {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
         }
         if let Err(error) = fs::write(output, format!("{json}\n")) {
             eprintln!("error: failed to write {}: {error}", output.display());
@@ -81,14 +97,7 @@ fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> Exi
             result.project.assets.len(),
             output.display()
         );
-        for diagnostic in &result.diagnostics {
-            let label = match diagnostic.severity {
-                Severity::Info => "info",
-                Severity::Warning => "warning",
-                Severity::Error => "error",
-            };
-            eprintln!("{label} [{}]: {}", diagnostic.code, diagnostic.message);
-        }
+        print_diagnostics(&result.diagnostics);
     } else {
         println!("{json}");
     }
@@ -116,6 +125,48 @@ fn compose(path: &Path, output: Option<&Path>) -> ExitCode {
         }
     };
     write_result(&composed, output, "Composed")
+}
+
+fn export_openbve(path: &Path, output: Option<&Path>) -> ExitCode {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: failed to read {}: {error}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+    let imported: ImportResult = match serde_json::from_str(&text) {
+        Ok(imported) => imported,
+        Err(error) => {
+            eprintln!("error: failed to parse RailWeave IR {}: {error}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+    let exported = match render_route(&imported.project) {
+        Ok(exported) => exported,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if let Some(output) = output {
+        if let Err(error) = ensure_parent(output) {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+        if let Err(error) = fs::write(output, &exported.csv) {
+            eprintln!("error: failed to write {}: {error}", output.display());
+            return ExitCode::from(1);
+        }
+        println!("Exported OpenBVE route -> {}", output.display());
+        print_diagnostics(&imported.diagnostics);
+        print_diagnostics(&exported.diagnostics);
+    } else {
+        print!("{}", exported.csv);
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn parse_output(
@@ -180,6 +231,25 @@ fn main() -> ExitCode {
                 Err(code) => return code,
             };
             compose(Path::new(&path), output.as_deref().map(Path::new))
+        }
+        "export" => {
+            let Some(target) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            if target.to_string_lossy().to_ascii_lowercase() != "openbve" {
+                eprintln!("error: unsupported export target: {}", target.to_string_lossy());
+                return ExitCode::from(2);
+            }
+            let Some(path) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            let output = match parse_output(&mut args) {
+                Ok(output) => output,
+                Err(code) => return code,
+            };
+            export_openbve(Path::new(&path), output.as_deref().map(Path::new))
         }
         "-h" | "--help" | "help" => {
             usage();

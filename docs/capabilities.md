@@ -1,6 +1,6 @@
 # Capability matrix
 
-RailWeave is intentionally explicit about partial support. Detection means that a format can be identified; it does not mean that all of its content can be imported.
+RailWeave is intentionally explicit about partial support. Detection means that a format can be identified; it does not mean that all of its content can be imported or exported losslessly.
 
 | Format / stage | Detection | Support | Current data |
 | --- | --- | --- | --- |
@@ -10,11 +10,11 @@ RailWeave is intentionally explicit about partial support. Detection means that 
 | Train Simulator / RailWorks | yes | no importer yet | — |
 | Loksim3D | yes | no importer yet | — |
 | Composition | n/a | partial | select one input network, metadata from a named input, and assets from any number of supported raw-source or saved-IR inputs |
-| OpenBVE target | n/a | not yet | exporter planned |
+| OpenBVE target | n/a | partial IR -> target | deterministic player-rail path selection and CSV export of gauge, curve, gradient and speed-limit state |
 
 ## BVE / OpenBVE
 
-The route importer reads the implicit player rail and integrates curvature and pitch into 3D node positions. Speed-limit state is attached to generated track edges.
+The route importer reads the implicit player rail and integrates curvature and pitch into 3D node positions. Source segment length, curve radius, gradient and speed-limit state are retained on IR edges when available.
 
 For train content, RailWeave currently creates provenance-preserving asset references for `train.dat`, `panel.animated` / `panel.cfg`, and `sound.cfg`. These references make train content available to composition before deep parsing of rolling-stock physics, cabs and sounds is implemented.
 
@@ -40,7 +40,22 @@ A version-1 TOML manifest can load either supported raw sources or saved RailWea
 - remaps asset IDs deterministically so IDs do not collide with the selected network;
 - preserves each entity's original provenance and carries input diagnostics forward.
 
-This is already enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE route plus an MSTS/OpenRails `.con` rolling-stock asset in one IR. It does not yet geometrically merge two independent railway networks.
+This is enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE route plus an MSTS/OpenRails `.con` rolling-stock asset in one IR. It does not yet geometrically merge two independent railway networks.
+
+## OpenBVE target
+
+The first target backend exports a driveable path from the generic graph IR as an OpenBVE CSV route. It:
+
+- selects a deterministic entry path through the graph;
+- prefers an MSTS/OpenRails edge marked `main` when a path node branches;
+- exports route gauge, `Track.Curve`, `Track.Pitch` and `Track.Limit` state when represented by the IR;
+- uses source segment lengths when available and otherwise approximates length from node coordinates;
+- uses a 1 metre OpenBVE block length and reports any position quantization;
+- reports dropped branches, inferred geometry and other target loss explicitly.
+
+MSTS `.pat` files do not contain full track-section geometry, so PAT-only routes are currently exported as straight chords between path waypoints with diagnostics. This is deliberately not presented as a lossless conversion.
+
+The target currently writes route CSV only. Composed rolling-stock, cab, sound and other asset references remain in the RailWeave IR and trigger a diagnostic rather than being silently ignored.
 
 ## Why BVE and MSTS first
 

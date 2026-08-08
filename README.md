@@ -16,7 +16,7 @@ OpenBVE is the first target.
 
 ## Status
 
-Very early development, but import and cross-simulator composition are already real code paths.
+Very early development, but import, cross-simulator composition and the first OpenBVE export path are real code paths.
 
 Implemented:
 
@@ -30,7 +30,8 @@ Implemented:
 - JSON IR import/output
 - TOML composition manifests that can combine supported raw sources and saved IR inputs
 - deterministic entity-ID remapping during composition
-- fixture-based cross-simulator tests and CI
+- OpenBVE CSV route export from a selected driveable IR path
+- fixture-based cross-simulator and round-trip tests in CI
 
 Not implemented yet:
 
@@ -39,7 +40,7 @@ Not implemented yet:
 - RailWorks or Loksim3D import
 - deep rolling-stock/cab/sound conversion
 - merging several route networks into one network
-- OpenBVE export
+- exporting composed rolling-stock/cab/sound assets into an OpenBVE train package
 
 See [`docs/capabilities.md`](docs/capabilities.md) for the exact support matrix.
 
@@ -89,6 +90,14 @@ Inputs may also use a previously generated IR file:
 [inputs.route]
 ir = "./route.railweave.json"
 ```
+
+Export the driveable network path to an OpenBVE CSV route:
+
+```bash
+railweave export openbve composed.railweave.json -o route.csv
+```
+
+The current OpenBVE exporter writes route geometry only. If the composed IR contains rolling-stock, cab or sound assets, they remain in the IR and the exporter reports that they were not yet emitted as an OpenBVE train package.
 
 For an MSTS/OpenRails route containing several paths, pass a specific `.pat` file to select one:
 
