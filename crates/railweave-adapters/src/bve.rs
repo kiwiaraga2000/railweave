@@ -391,11 +391,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
     let mut result = ImportResult::new(RailProject::new());
 
     if let Some(route_path) = route_candidates.first() {
-        import_route(
-            route_path,
-            &mut result.project,
-            &mut result.diagnostics,
-        )?;
+        import_route(route_path, &mut result.project, &mut result.diagnostics)?;
         if route_candidates.len() > 1 {
             result.diagnostics.push(Diagnostic::new(
                 Severity::Warning,
@@ -419,28 +415,13 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         );
     }
     for path in animated_panels {
-        add_asset(
-            &mut result.project,
-            &mut next_id,
-            AssetKind::Cab,
-            path,
-        );
+        add_asset(&mut result.project, &mut next_id, AssetKind::Cab, path);
     }
     for path in legacy_panels {
-        add_asset(
-            &mut result.project,
-            &mut next_id,
-            AssetKind::Cab,
-            path,
-        );
+        add_asset(&mut result.project, &mut next_id, AssetKind::Cab, path);
     }
     for path in sound_configs {
-        add_asset(
-            &mut result.project,
-            &mut next_id,
-            AssetKind::Sound,
-            path,
-        );
+        add_asset(&mut result.project, &mut next_id, AssetKind::Sound, path);
     }
 
     if result.project.network.nodes.is_empty() && result.project.metadata.title.is_none() {
