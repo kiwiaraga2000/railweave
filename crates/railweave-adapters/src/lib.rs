@@ -4,6 +4,7 @@ mod msts;
 mod msts_consist;
 mod msts_curve;
 mod msts_tsection;
+mod msts_vehicle;
 
 use railweave_core::{ImportError, ImportResult, SourceFormat};
 use std::path::Path;
@@ -34,6 +35,7 @@ pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
         SourceFormat::MstsOpenRails => {
             let mut imported = msts::import(root)?;
             msts_consist::enrich_consists(root, &mut imported);
+            msts_vehicle::enrich_vehicle_metadata(&mut imported);
             msts_curve::enrich_tdb_curves(root, &mut imported);
             Ok(imported)
         }
