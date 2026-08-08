@@ -1,5 +1,6 @@
 use railweave_adapters::{detect_all, import_path};
-use railweave_core::{Detection, Severity};
+use railweave_compose::compose_manifest;
+use railweave_core::{Detection, ImportResult, Severity};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -7,7 +8,7 @@ use std::process::ExitCode;
 
 fn usage() {
     eprintln!(
-        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n"
+        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n  railweave compose <manifest.toml> [-o <composed.railweave.json>]\n"
     );
 }
 
@@ -47,16 +48,8 @@ fn scan(path: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn import(path: &Path, output: Option<&Path>) -> ExitCode {
-    let imported = match import_path(path) {
-        Ok(imported) => imported,
-        Err(error) => {
-            eprintln!("error: {error}");
-            return ExitCode::from(1);
-        }
-    };
-
-    let json = match serde_json::to_string_pretty(&imported) {
+fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> ExitCode {
+    let json = match serde_json::to_string_pretty(result) {
         Ok(json) => json,
         Err(error) => {
             eprintln!("error: failed to serialize IR: {error}");
@@ -82,13 +75,13 @@ fn import(path: &Path, output: Option<&Path>) -> ExitCode {
         }
 
         println!(
-            "Imported {} nodes, {} edges, {} assets -> {}",
-            imported.project.network.nodes.len(),
-            imported.project.network.edges.len(),
-            imported.project.assets.len(),
+            "{verb} {} nodes, {} edges, {} assets -> {}",
+            result.project.network.nodes.len(),
+            result.project.network.edges.len(),
+            result.project.assets.len(),
             output.display()
         );
-        for diagnostic in &imported.diagnostics {
+        for diagnostic in &result.diagnostics {
             let label = match diagnostic.severity {
                 Severity::Info => "info",
                 Severity::Warning => "warning",
@@ -101,6 +94,48 @@ fn import(path: &Path, output: Option<&Path>) -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+fn import(path: &Path, output: Option<&Path>) -> ExitCode {
+    let imported = match import_path(path) {
+        Ok(imported) => imported,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    write_result(&imported, output, "Imported")
+}
+
+fn compose(path: &Path, output: Option<&Path>) -> ExitCode {
+    let composed = match compose_manifest(path) {
+        Ok(composed) => composed,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    write_result(&composed, output, "Composed")
+}
+
+fn parse_output(args: &mut impl Iterator<Item = std::ffi::OsString>) -> Result<Option<std::ffi::OsString>, ExitCode> {
+    let mut output = None;
+    while let Some(arg) = args.next() {
+        match arg.to_string_lossy().as_ref() {
+            "-o" | "--output" => {
+                let Some(value) = args.next() else {
+                    eprintln!("error: {} requires a path", arg.to_string_lossy());
+                    return Err(ExitCode::from(2));
+                };
+                output = Some(value);
+            }
+            other => {
+                eprintln!("error: unknown option: {other}");
+                return Err(ExitCode::from(2));
+            }
+        }
+    }
+    Ok(output)
 }
 
 fn main() -> ExitCode {
@@ -127,25 +162,22 @@ fn main() -> ExitCode {
                 usage();
                 return ExitCode::from(2);
             };
-
-            let mut output = None;
-            while let Some(arg) = args.next() {
-                match arg.to_string_lossy().as_ref() {
-                    "-o" | "--output" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("error: {} requires a path", arg.to_string_lossy());
-                            return ExitCode::from(2);
-                        };
-                        output = Some(value);
-                    }
-                    other => {
-                        eprintln!("error: unknown import option: {other}");
-                        return ExitCode::from(2);
-                    }
-                }
-            }
-
+            let output = match parse_output(&mut args) {
+                Ok(output) => output,
+                Err(code) => return code,
+            };
             import(Path::new(&path), output.as_deref().map(Path::new))
+        }
+        "compose" => {
+            let Some(path) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            let output = match parse_output(&mut args) {
+                Ok(output) => output,
+                Err(code) => return code,
+            };
+            compose(Path::new(&path), output.as_deref().map(Path::new))
         }
         "-h" | "--help" | "help" => {
             usage();
