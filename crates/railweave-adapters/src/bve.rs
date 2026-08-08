@@ -1,7 +1,7 @@
 use crate::detectors::{bve_route_candidates, decode_text};
 use railweave_core::{
-    Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat, TrackEdge,
-    TrackNode, Vec3,
+    Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat,
+    TrackEdge, TrackNode, Vec3,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -148,12 +148,7 @@ fn command_number(command: &Command, index: usize) -> Option<f64> {
         .filter(|value| value.is_finite())
 }
 
-fn integrate(
-    position: Vec3,
-    heading: f64,
-    distance: f64,
-    state: GeometryState,
-) -> (Vec3, f64) {
+fn integrate(position: Vec3, heading: f64, distance: f64, state: GeometryState) -> (Vec3, f64) {
     let dy = distance * state.pitch_per_mille / 1000.0;
     if state.radius.abs() < 1e-9 {
         return (
