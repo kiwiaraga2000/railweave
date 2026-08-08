@@ -286,6 +286,8 @@ fn import_path_topology(
                 gauge_mm: None,
                 electrification: None,
                 speed_limit_kmh: None,
+                curve_radius_m: None,
+                gradient_per_mille: None,
                 provenance: Some(provenance(Some(format!("TrPathNode:{index}:{kind}")))),
             });
             next_id += 1;
