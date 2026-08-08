@@ -10,6 +10,8 @@ const MAX_INCLUDE_DEPTH: usize = 8;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SectionGeometry {
     pub length_m: f64,
+    pub curve_radius_m: Option<f64>,
+    pub curve_angle_rad: Option<f64>,
 }
 
 fn stf_tokens(text: &str) -> Vec<String> {
@@ -105,16 +107,22 @@ fn standard_section_geometry(
         .filter(|length| length.abs() > EPSILON)
         .map(f64::abs);
 
-    let curve_length = find_block(body, "sectioncurve").and_then(|(curve_open, _)| {
-        let radius = parse_f64(body.get(curve_open + 1))?;
-        let angle_degrees = parse_f64(body.get(curve_open + 2))?;
-        let length = radius.abs() * angle_degrees.to_radians().abs();
-        (length > EPSILON).then_some(length)
+    let curve = find_block(body, "sectioncurve").and_then(|(curve_open, _)| {
+        let radius = parse_f64(body.get(curve_open + 1))?.abs();
+        let angle_rad = parse_f64(body.get(curve_open + 2))?.to_radians();
+        (radius > EPSILON && angle_rad.abs() > EPSILON).then_some((radius, angle_rad))
     });
+    let curve_length = curve.map(|(radius, angle_rad)| radius * angle_rad.abs());
+    let length_m = straight_length.or(curve_length)?;
 
-    straight_length
-        .or(curve_length)
-        .map(|length_m| (section_index, SectionGeometry { length_m }))
+    Some((
+        section_index,
+        SectionGeometry {
+            length_m,
+            curve_radius_m: curve.map(|(radius, _)| radius),
+            curve_angle_rad: curve.map(|(_, angle_rad)| angle_rad),
+        },
+    ))
 }
 
 fn dynamic_section_geometry(
@@ -132,12 +140,24 @@ fn dynamic_section_geometry(
     let section_index = parse_u32(body.get(index_offset))?;
     let a = parse_f64(body.get(index_offset + 1))?;
     let b = parse_f64(body.get(index_offset + 2))?;
-    let length_m = if b.abs() <= EPSILON {
-        a.abs()
+    let curve = (b.abs() > EPSILON && a.abs() > EPSILON).then_some((b.abs(), a));
+    let length_m = if let Some((radius, angle_rad)) = curve {
+        radius * angle_rad.abs()
     } else {
-        (a * b).abs()
+        a.abs()
     };
-    (length_m > EPSILON).then_some((section_index, SectionGeometry { length_m }))
+    if length_m <= EPSILON {
+        return None;
+    }
+
+    Some((
+        section_index,
+        SectionGeometry {
+            length_m,
+            curve_radius_m: curve.map(|(radius, _)| radius),
+            curve_angle_rad: curve.map(|(_, angle_rad)| angle_rad),
+        },
+    ))
 }
 
 fn parse_sections(text: &str) -> HashMap<u32, SectionGeometry> {
@@ -287,14 +307,14 @@ pub(crate) fn load_section_geometry(
         diagnostics.push(Diagnostic::new(
             Severity::Info,
             "RW219_MSTS_TSECTION_NOT_FOUND",
-            "no tsection.dat was found near the imported MSTS/OpenRails content; section lengths remain unknown",
+            "no tsection.dat was found near the imported MSTS/OpenRails content; section geometry remains unknown",
         ));
     } else {
         diagnostics.push(Diagnostic::new(
             Severity::Info,
             "RW220_MSTS_TSECTION_LOADED",
             format!(
-                "loaded length metadata for {} MSTS track section(s) from {} tsection root file(s)",
+                "loaded geometry metadata for {} MSTS track section(s) from {} tsection root file(s)",
                 sections.len(),
                 candidates.len()
             ),
@@ -321,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_standard_straight_and_curve_lengths() {
+    fn parses_standard_straight_and_curve_geometry() {
         let parsed = parse_sections(
             r#"TrackSections ( 3
 TrackSection ( 1 SectionSize ( 1.5 50 ) )
@@ -330,9 +350,12 @@ TrackSection ( 3 SectionSize ( 1.5 0 ) SectionCurve ( 1000 -5 ) )
 )"#,
         );
         assert!((parsed[&1].length_m - 50.0).abs() < 0.001);
+        assert_eq!(parsed[&1].curve_radius_m, None);
         let arc = 1000.0 * 5.0_f64.to_radians();
         assert!((parsed[&2].length_m - arc).abs() < 0.001);
-        assert!((parsed[&3].length_m - arc).abs() < 0.001);
+        assert_eq!(parsed[&2].curve_radius_m, Some(1000.0));
+        assert!((parsed[&2].curve_angle_rad.unwrap() - 5.0_f64.to_radians()).abs() < 0.000001);
+        assert!((parsed[&3].curve_angle_rad.unwrap() + 5.0_f64.to_radians()).abs() < 0.000001);
     }
 
     #[test]
