@@ -2,6 +2,7 @@
 members = [
     "crates/railweave-core",
     "crates/railweave-adapters",
+    "crates/railweave-compose",
     "crates/railweave-cli",
 ]
 resolver = "2"
