@@ -2,7 +2,7 @@
 
 RailWeave is a toolkit for importing, combining and exporting railway-simulator content across otherwise incompatible ecosystems.
 
-The goal is not just `A -> B` conversion. RailWeave uses a common railway model so content from different simulators can be composed before export. A route might come from Trainz, rolling stock from MSTS/OpenRails, sounds from BVE, and the resulting package can be exported to OpenBVE.
+The goal is not just `A -> B` conversion. RailWeave uses a common railway model so content from different simulators can be composed before export. A route can come from one simulator, rolling stock from another, and cabs, sounds or other assets from still others.
 
 ```text
 Trainz ----------\
@@ -16,24 +16,29 @@ OpenBVE is the first target.
 
 ## Status
 
-Very early development, but the first source-to-IR path is now real.
+Very early development, but import and cross-simulator composition are already real code paths.
 
 Implemented:
 
 - versioned, simulator-independent railway IR
-- provenance and conversion diagnostics
+- provenance and explicit conversion diagnostics
 - source-format auto-detection for BVE/OpenBVE, MSTS/OpenRails, Trainz, RailWorks and Loksim3D
 - BVE/OpenBVE CSV primary-track geometry import (`Curve`, `Pitch`, `Limit`)
+- BVE/OpenBVE train asset references from `train.dat`, panel files and `sound.cfg`
 - MSTS/OpenRails textual/UTF-16 `.pat` waypoint and path-topology import
-- JSON IR output
-- fixture-based tests and CI
+- MSTS/OpenRails `.con` rolling-stock asset references
+- JSON IR import/output
+- TOML composition manifests that can combine supported raw sources and saved IR inputs
+- deterministic entity-ID remapping during composition
+- fixture-based cross-simulator tests and CI
 
 Not implemented yet:
 
 - full MSTS `.tdb` route geometry
 - Trainz route import
 - RailWorks or Loksim3D import
-- composition manifests
+- deep rolling-stock/cab/sound conversion
+- merging several route networks into one network
 - OpenBVE export
 
 See [`docs/capabilities.md`](docs/capabilities.md) for the exact support matrix.
@@ -53,6 +58,37 @@ railweave import /path/to/content -o project.railweave.json
 ```
 
 Without `-o`, the JSON is written to stdout.
+
+Compose several inputs:
+
+```bash
+railweave compose railweave.toml -o composed.railweave.json
+```
+
+A composition manifest can point directly at raw supported sources:
+
+```toml
+version = 1
+
+[inputs.route]
+source = "./route.csv"
+
+[inputs.stock]
+source = "./ED4M.con"
+
+[compose]
+network = "route"
+assets = ["stock"]
+```
+
+That example imports the route through the BVE/OpenBVE adapter and the rolling-stock reference through the MSTS/OpenRails adapter, then puts both into one RailWeave IR while preserving their provenance.
+
+Inputs may also use a previously generated IR file:
+
+```toml
+[inputs.route]
+ir = "./route.railweave.json"
+```
 
 For an MSTS/OpenRails route containing several paths, pass a specific `.pat` file to select one:
 
