@@ -178,7 +178,11 @@ fn select_driveable_path<'a>(
 }
 
 fn fmt_number(value: f64) -> String {
-    let value = if value.abs() < 0.000_000_5 { 0.0 } else { value };
+    let value = if value.abs() < 0.000_000_5 {
+        0.0
+    } else {
+        value
+    };
     let mut text = format!("{value:.6}");
     while text.contains('.') && text.ends_with('0') {
         text.pop();
@@ -326,10 +330,7 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
             previous_gradient = gradient;
         }
         if option_changed(previous_curve, curve) {
-            commands.push(format!(
-                ".Curve {}; 0",
-                fmt_number(curve.unwrap_or(0.0))
-            ));
+            commands.push(format!(".Curve {}; 0", fmt_number(curve.unwrap_or(0.0))));
             previous_curve = curve;
         }
         if option_changed(previous_limit, limit) {
@@ -412,10 +413,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "railweave-openbve-{}-{nonce}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("railweave-openbve-{}-{nonce}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }
