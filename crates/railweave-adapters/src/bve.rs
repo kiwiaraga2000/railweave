@@ -285,8 +285,8 @@ fn import_route(
     for (_, (position, event)) in events {
         if position > previous_position {
             let edge_state = state;
-            let (new_world, new_heading) =
-                integrate(world, heading, position - previous_position, state);
+            let segment_length = position - previous_position;
+            let (new_world, new_heading) = integrate(world, heading, segment_length, state);
             world = new_world;
             heading = new_heading;
 
@@ -304,6 +304,7 @@ fn import_route(
                 gauge_mm: None,
                 electrification: None,
                 speed_limit_kmh: edge_state.speed_limit_kmh,
+                length_m: Some(segment_length),
                 curve_radius_m: if edge_state.radius.abs() < 1e-9 {
                     None
                 } else {
@@ -489,8 +490,15 @@ mod tests {
             imported.project.network.edges[2].speed_limit_kmh,
             Some(80.0)
         );
-        assert_eq!(imported.project.network.edges[0].gradient_per_mille, Some(10.0));
-        assert_eq!(imported.project.network.edges[1].curve_radius_m, Some(500.0));
+        assert_eq!(imported.project.network.edges[0].length_m, Some(100.0));
+        assert_eq!(
+            imported.project.network.edges[0].gradient_per_mille,
+            Some(10.0)
+        );
+        assert_eq!(
+            imported.project.network.edges[1].curve_radius_m,
+            Some(500.0)
+        );
         fs::remove_dir_all(root).ok();
     }
 
