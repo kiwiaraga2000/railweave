@@ -304,6 +304,16 @@ fn import_route(
                 gauge_mm: None,
                 electrification: None,
                 speed_limit_kmh: edge_state.speed_limit_kmh,
+                curve_radius_m: if edge_state.radius.abs() < 1e-9 {
+                    None
+                } else {
+                    Some(edge_state.radius)
+                },
+                gradient_per_mille: if edge_state.pitch_per_mille.abs() < 1e-9 {
+                    None
+                } else {
+                    Some(edge_state.pitch_per_mille)
+                },
                 provenance: Some(route_provenance(Some(format!(
                     "segment:{previous_position}-{position}"
                 )))),
@@ -479,6 +489,8 @@ mod tests {
             imported.project.network.edges[2].speed_limit_kmh,
             Some(80.0)
         );
+        assert_eq!(imported.project.network.edges[0].gradient_per_mille, Some(10.0));
+        assert_eq!(imported.project.network.edges[1].curve_radius_m, Some(500.0));
         fs::remove_dir_all(root).ok();
     }
 
