@@ -955,15 +955,21 @@ mod tests {
     use railweave_adapters::import_path;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn fixture() -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("railweave-openbve-{}-{nonce}", std::process::id()));
+        let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "railweave-openbve-{}-{nonce}-{sequence}",
+            std::process::id()
+        ));
         fs::create_dir_all(&path).unwrap();
         path
     }
