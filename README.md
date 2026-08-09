@@ -15,6 +15,13 @@
   <img alt="Rust 1.74+" src="https://img.shields.io/badge/rust-1.74%2B-b7410e">
 </p>
 
+<p align="center">
+  <a href="https://github.com/kiwiaraga2000/railweave/releases/latest">Download</a>
+  · <a href="docs/capabilities.md">Formats</a>
+  · <a href="docs/architecture.md">Architecture</a>
+  · <a href="docs/adapter-protocol.md">Adapter protocol</a>
+</p>
+
 RailWeave converts source content into a versioned, simulator-neutral railway model and exports that model to a target simulator. OpenBVE is the first production target. The same architecture is designed to add new games once, instead of building and maintaining a converter for every possible pair.
 
 ```text
@@ -24,11 +31,25 @@ GeoJSON / track CSV ─┼─> source adapters ─> RailWeave IR ─> target ada
 community adapters ──┘                              └──────> future targets
 ```
 
+## Install
+
+| Platform | Binary |
+| --- | --- |
+| Linux x86-64 | [`railweave-linux-x86_64.tar.gz`](https://github.com/kiwiaraga2000/railweave/releases/latest/download/railweave-linux-x86_64.tar.gz) |
+| macOS Apple silicon | [`railweave-macos-aarch64.tar.gz`](https://github.com/kiwiaraga2000/railweave/releases/latest/download/railweave-macos-aarch64.tar.gz) |
+| Windows x86-64 | [`railweave-windows-x86_64.zip`](https://github.com/kiwiaraga2000/railweave/releases/latest/download/railweave-windows-x86_64.zip) |
+
+Or install the current source release with Cargo:
+
+```bash
+cargo install --git https://github.com/kiwiaraga2000/railweave --tag v0.1.0 --locked railweave
+```
+
+Every release includes a `SHA256SUMS` file for verification.
+
 ## One-command conversion
 
 ```bash
-cargo install --path crates/railweave-cli
-
 railweave convert ./MyRoute \
   --to openbve \
   --name "My Route" \
