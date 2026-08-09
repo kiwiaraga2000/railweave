@@ -4,12 +4,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+description = "Convert railway simulator routes and rolling stock through a common extensible IR"
+publish = false
 
 [dependencies]
-railweave-core = { path = "../railweave-core" }
-railweave-adapters = { path = "../railweave-adapters" }
-railweave-compose = { path = "../railweave-compose" }
-railweave-openbve = { path = "../railweave-openbve" }
+railweave-core = { version = "0.1.0", path = "../railweave-core" }
+railweave-adapters = { version = "0.1.0", path = "../railweave-adapters" }
+railweave-compose = { version = "0.1.0", path = "../railweave-compose" }
+railweave-openbve = { version = "0.1.0", path = "../railweave-openbve" }
 serde_json = "1"
 
 [lints]

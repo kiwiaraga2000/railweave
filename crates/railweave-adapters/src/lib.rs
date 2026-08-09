@@ -1,15 +1,87 @@
 mod bve;
 mod detectors;
+mod interchange;
 mod msts;
 mod msts_consist;
 mod msts_curve;
 mod msts_tsection;
 mod msts_vehicle;
 
-use railweave_core::{ImportError, ImportResult, SourceFormat};
+use railweave_core::{
+    Diagnostic, ImportError, ImportResult, Severity, SourceFormat, IR_SCHEMA_VERSION,
+};
 use std::path::Path;
+use std::process::Command;
 
 pub use detectors::{built_in_detectors, detect_all};
+
+/// Run a user-supplied source adapter using the stable RailWeave adapter protocol.
+///
+/// The executable receives the source path as its sole positional argument and
+/// must write one `ImportResult` JSON document to stdout. Diagnostics and logs
+/// belong on stderr. This boundary lets proprietary or community formats evolve
+/// outside the core binary without creating pairwise converter code.
+pub fn import_external(adapter: &Path, source: &Path) -> Result<ImportResult, ImportError> {
+    if !adapter.exists() {
+        return Err(ImportError::new(
+            "RW004_ADAPTER_NOT_FOUND",
+            format!("external adapter does not exist: {}", adapter.display()),
+        ));
+    }
+    let output = Command::new(adapter)
+        .arg(source)
+        .env("RAILWEAVE_ADAPTER_PROTOCOL", "1")
+        .env("RAILWEAVE_IR_SCHEMA", IR_SCHEMA_VERSION.to_string())
+        .output()
+        .map_err(|error| {
+            ImportError::new(
+                "RW005_ADAPTER_LAUNCH_FAILED",
+                format!("failed to launch {}: {error}", adapter.display()),
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ImportError::new(
+            "RW006_ADAPTER_FAILED",
+            format!(
+                "adapter {} exited with {}: {}",
+                adapter.display(),
+                output.status,
+                stderr.trim()
+            ),
+        ));
+    }
+    if output.stdout.len() > 64 * 1024 * 1024 {
+        return Err(ImportError::new(
+            "RW007_ADAPTER_OUTPUT_LIMIT",
+            "external adapter output exceeds the 64 MiB protocol limit",
+        ));
+    }
+    let mut result: ImportResult = serde_json::from_slice(&output.stdout).map_err(|error| {
+        ImportError::new(
+            "RW008_ADAPTER_OUTPUT_INVALID",
+            format!("adapter returned invalid RailWeave JSON: {error}"),
+        )
+    })?;
+    if result.project.schema_version != IR_SCHEMA_VERSION {
+        return Err(ImportError::new(
+            "RW009_ADAPTER_SCHEMA",
+            format!(
+                "adapter returned IR schema {}, expected {}",
+                result.project.schema_version, IR_SCHEMA_VERSION
+            ),
+        ));
+    }
+    result.diagnostics.push(Diagnostic::new(
+        Severity::Info,
+        "RW010_EXTERNAL_ADAPTER",
+        format!(
+            "source imported through external adapter {}",
+            adapter.display()
+        ),
+    ));
+    Ok(result)
+}
 
 pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
     if !root.exists() {
@@ -31,6 +103,9 @@ pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
     };
 
     match best.format {
+        SourceFormat::RailWeave => interchange::import_ir(root),
+        SourceFormat::GeoJson => interchange::import_geojson(root),
+        SourceFormat::TrackCsv => interchange::import_track_csv(root),
         SourceFormat::BveOpenBve => bve::import(root),
         SourceFormat::MstsOpenRails => {
             let mut imported = msts::import(root)?;
@@ -39,9 +114,6 @@ pub fn import_path(root: &Path) -> Result<ImportResult, ImportError> {
             msts_curve::enrich_tdb_curves(root, &mut imported);
             Ok(imported)
         }
-        format => Err(ImportError::new(
-            "RW003_IMPORT_NOT_IMPLEMENTED",
-            format!("{format} was detected, but its source-to-IR importer is not implemented yet"),
-        )),
+        format => interchange::import_game_bridge(root, format),
     }
 }

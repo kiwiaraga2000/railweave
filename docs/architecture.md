@@ -1,123 +1,67 @@
 # Architecture
 
-RailWeave treats simulator formats as adapters around a versioned intermediate representation (IR). The IR must preserve railway meaning without inheriting one simulator's storage model.
-
-## Pipeline
+RailWeave uses a hub-and-spoke conversion model:
 
 ```text
-source content
-    |
-    v
-format detection
-    |
-    v
-source adapter
-    |
-    v
-RailWeave IR + provenance + diagnostics
-    |
-    +--> composition / overrides / conflict resolution
-    |
-    v
-target adapter
-    |
-    v
-target simulator package
+source files ─> detector ─> source adapter ─> versioned IR ─> target adapter ─> package
+                                              │
+                                              └─> composition
 ```
 
-OpenBVE is the first target, but the core must not depend on OpenBVE concepts.
+With `n` simulators, direct pairwise converters trend toward `n²` implementations. RailWeave needs one importer and one exporter per simulator, or `2n` adapters. A new source immediately gains every target; a new target immediately gains every source.
 
-## Why an IR
+## Crates
 
-A direct converter for every pair of simulators scales poorly and makes mixed-source packages awkward. With `n` formats, pairwise conversion trends toward `n^2` conversion paths. RailWeave instead gives every source one import path and every target one export path.
+| Crate | Responsibility |
+| --- | --- |
+| `railweave-core` | versioned IR, provenance, diagnostics and bounded filesystem walking |
+| `railweave-adapters` | source detection, built-in importers, portable bridges and external adapter protocol |
+| `railweave-compose` | deterministic cross-source composition and reference remapping |
+| `railweave-openbve` | driveable path selection, route rendering, train synthesis and package output |
+| `railweave-cli` | stable command-line workflow |
 
-The IR also gives composition a stable boundary. A route, train, cab, sound set and traffic plan can originate in different ecosystems and still be reasoned about consistently.
+The dependency direction points inward: targets and source adapters depend on the core; the core does not know any simulator-specific command syntax.
 
-## Core model
+## Intermediate representation
 
-The first IR version starts deliberately small:
+IR schema version 1 stores:
 
-- a graph of track nodes and edges
-- physical properties such as gauge, electrification and speed limits
-- asset references for meshes, textures, sounds, cabs, signals and rolling stock
-- provenance for every imported entity where practical
-- diagnostics for unsupported, approximated or conflicting data
+- graph nodes and edges with 3D positions;
+- length, gauge, gradient, radius, speed and electrification state;
+- stations and stop time;
+- typed asset references;
+- vehicle mass, dimensions, braking and traction metadata;
+- ordered consists;
+- provenance for imported entities;
+- coded diagnostics outside the project document.
 
-Later versions will add richer geometry, switches, stations/platforms, signalling logic, rolling-stock physics, cabs/controls, timetables and traffic.
+New optional fields use Serde defaults so older schema-1 artifacts continue to load. A breaking semantic change requires a schema increment and an explicit migration.
 
-### Track topology
+## Path selection
 
-Track is a graph in the IR. It is not represented as OpenBVE's primary rail plus offsets. That transformation belongs in the OpenBVE target adapter.
+OpenBVE is centered on a driveable player path. The IR is not. The target adapter therefore:
 
-This is important for sources such as Trainz and MSTS/OpenRails, where the source may contain yards, branches and multiple possible paths through a network.
+1. validates every edge reference;
+2. finds graph entry nodes;
+3. selects deterministically by entity ID;
+4. prefers an edge explicitly marked as a main path;
+5. detects loops;
+6. reports dropped components and branches.
 
-### Provenance
+This choice belongs in the target adapter because another simulator may represent and export the whole graph.
 
-Imported data should retain enough information to answer questions such as:
+## Conversion loss
 
-- Which source file produced this track edge?
-- Which simulator format did this asset come from?
-- Was this value native, inferred or overridden during composition?
+Every adapter returns a project plus diagnostics. Information that cannot be represented must be either retained as provenance/asset metadata or diagnosed. Silent success is a bug.
 
-Provenance is also useful for diagnostics and reproducible builds.
+The OpenBVE package also includes the final diagnostics in `railweave-manifest.json`, so automation can gate releases without scraping terminal text.
 
-### Diagnostics and loss
+## External adapters
 
-Conversion loss must be explicit. A target adapter should emit a diagnostic when it has to drop, approximate or flatten a feature rather than silently producing a plausible-looking but semantically different result.
+Built-in importers cover formats that can be implemented and tested using redistributable synthetic fixtures. Proprietary or fast-moving formats use an executable boundary. The adapter accepts a source path and returns the same JSON document a built-in importer would have produced.
 
-Examples include unsupported signal logic, animation features, complex track topology or rolling-stock systems that the target cannot represent.
-
-## Composition
-
-Composition is a first-class stage rather than a post-processing trick. A composition manifest will eventually be able to select parts from different imported projects, for example:
-
-```toml
-[route]
-source = "trainz-route"
-
-[rolling_stock]
-source = "msts-ed4m"
-
-[sounds]
-source = "bve-ed4m-sounds"
-
-[target]
-format = "openbve"
-```
-
-Conflict resolution must be deterministic and visible in diagnostics.
-
-## Source adapters
-
-Initial detector work covers fingerprints for:
-
-- BVE / OpenBVE
-- MSTS / OpenRails
-- Trainz
-- Train Simulator / RailWorks
-- Loksim3D
-
-Detection does not imply full import support. Each adapter will publish a capability matrix as implementation progresses.
-
-The first implementation goal is to support at least two independent source formats end-to-end early enough to pressure-test the IR.
-
-## Target adapters
-
-The first target is OpenBVE. Its exporter will be responsible for mapping a general railway graph to OpenBVE route concepts and for reporting topology or feature loss.
-
-Target-specific constraints must not leak back into the core IR unless they describe a genuinely simulator-independent railway concept.
+This boundary is intentionally language-independent. See [adapter-protocol.md](adapter-protocol.md).
 
 ## Asset policy
 
-RailWeave is a local conversion tool. The repository should contain only original test fixtures, freely redistributable fixtures, or small synthetic examples created for testing.
-
-Adapters should work on content the user can lawfully access. RailWeave will not include DRM circumvention or distribute third-party simulator assets.
-
-## Near-term milestones
-
-1. `railweave scan <path>` with source-format detection.
-2. Versioned IR types and conversion diagnostics.
-3. Two source adapters capable of producing meaningful IR data.
-4. Composition manifest and deterministic merge rules.
-5. First OpenBVE route export.
-6. Capability reports and fixture-based regression tests.
+RailWeave converts locally owned content. It does not bypass encryption or DRM, ship proprietary fixtures, or grant permission to redistribute converted assets. Symlinks are skipped when copying native OpenBVE trains, and scans/copies are bounded to prevent malformed add-ons from exhausting a conversion run.

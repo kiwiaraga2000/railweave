@@ -71,4 +71,4 @@ Still to import deeply:
 - sound graphs;
 - vehicle meshes/textures as linked structured resources.
 
-Those pieces are the remaining input needed before a useful OpenBVE train-package exporter can be more than a lossy approximation.
+The OpenBVE package exporter uses the structured fields above to synthesize a conservative `train.dat`. Missing detailed systems are recorded as defaults or losses in the package manifest; they are not presented as a physics-perfect conversion.

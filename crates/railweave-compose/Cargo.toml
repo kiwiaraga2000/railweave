@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+description = "Cross-simulator composition engine for RailWeave"
+publish = false
 
 [dependencies]
-railweave-core = { path = "../railweave-core" }
-railweave-adapters = { path = "../railweave-adapters" }
+railweave-core = { version = "0.1.0", path = "../railweave-core" }
+railweave-adapters = { version = "0.1.0", path = "../railweave-adapters" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

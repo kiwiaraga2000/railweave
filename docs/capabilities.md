@@ -1,70 +1,58 @@
 # Capability matrix
 
-RailWeave is intentionally explicit about partial support. Detection means that a format can be identified; it does not mean that all of its content can be imported or exported losslessly.
+RailWeave reports unsupported, inferred and defaulted data as diagnostics. Detection only identifies a source; it is not a claim of lossless import.
 
-| Format / stage | Detection | Support | Current data |
-| --- | --- | --- | --- |
-| BVE / OpenBVE | yes | partial source -> IR | CSV primary rail geometry from `Track.Curve` and `Track.Pitch`, `Track.Limit` speed state, and train/cab/sound source asset references |
-| MSTS / OpenRails | yes | partial source -> IR | textual/UTF-16 `.tdb` route-wide vector-section topology and coordinates, `tsection.dat` lengths/curves, `.pat` waypoint/path topology fallback, structured `.con` consists, resolved `.eng` / `.wag` member assets and basic vehicle physical/brake metadata |
-| Trainz | yes | no importer yet | — |
-| Train Simulator / RailWorks | yes | no importer yet | — |
-| Loksim3D | yes | no importer yet | — |
-| Composition | n/a | partial | select one input network, metadata from a named input, and assets/vehicles/structured consists from any number of supported raw-source or saved-IR inputs |
-| OpenBVE target | n/a | partial IR -> target | deterministic player-rail path selection and CSV export of gauge, curve, gradient and speed-limit state |
+## Sources
 
-## BVE / OpenBVE
+| Source | Detection | Network | Rolling stock | Assets | Notes |
+| --- | :---: | --- | --- | --- | --- |
+| BVE / OpenBVE | yes | primary rail geometry, curve, pitch, limits | native train reference | train, panel, sound references | auxiliary rails, scenery and signalling are diagnosed but not yet converted |
+| MSTS / OpenRails | yes | textual/UTF-16 TDB, PAT fallback, `tsection.dat` lengths and curves | CON consists; ENG/WAG mass, dimensions, brakes, force, power and speed | rolling-stock references | compressed TDB and deep cab/sound systems require an adapter or future built-in work |
+| RailWeave JSON | yes | full IR | full IR | full IR | versioned, deterministic interchange |
+| GeoJSON | yes | LineString and MultiLineString geometry | — | — | reads `gauge_mm`, `speed_limit_kmh` / `maxspeed` properties |
+| RailWeave track CSV | yes | coordinates, line grouping, gauge, limits, radius and gradient | — | — | also imports stations and dwell time |
+| Trainz | yes | via portable bridge or external adapter | via adapter | via adapter | native route topology is stored in proprietary game databases |
+| Train Simulator / RailWorks | yes | via portable bridge or external adapter | via adapter | via adapter | binary `Tracks.bin` revisions normally need Serz/game tooling |
+| Loksim3D | yes | via portable bridge or external adapter | via adapter | via adapter | packages/modules vary by release |
 
-The route importer reads the implicit player rail and integrates curvature and pitch into 3D node positions. Source segment length, curve radius, gradient and speed-limit state are retained on IR edges when available.
-
-For train content, RailWeave currently creates provenance-preserving asset references for `train.dat`, `panel.animated` / `panel.cfg`, and `sound.cfg`. These references make train content available to composition before deep parsing of rolling-stock physics, cabs and sounds is implemented.
-
-Known route gaps include auxiliary rails, switches, stations, signal logic, scenery, structures, power-supply state, cant, `Track.Turn`, and most route metadata. When a supported route uses auxiliary rails or `Track.Turn`, RailWeave emits a diagnostic instead of silently claiming a lossless conversion.
-
-## MSTS / OpenRails
-
-For route directories, RailWeave prefers a textual or UTF-16 `.tdb` Track Database when one is available. The importer reads MSTS `TrackNode`, `UiD`, `TrPins`, `TrVectorNode` and `TrVectorSections` data, normalizes the 2048 metre tile coordinate system, reuses junction/end points as graph nodes, and emits the route-wide vector network into the common IR.
-
-A TDB vector section identifies a `tsection.dat` section and stores the beginning coordinate and orientation of that section. RailWeave searches route-local OpenRails data, route-level overrides and the install-level `GLOBAL/TSECTION.DAT` layout case-insensitively; relative `include` directives are followed and later route definitions override included/global sections. Standard straight/curve definitions provide exact section length and curve radius/angle. Section lengths are attached to IR edges and are also used to derive average edge gradient from TDB endpoint elevations.
-
-For curved sections, the sign of `curve_radius_m` is resolved primarily from the observed change in TDB yaw (`AY`) between the start of a vector section and the following section or endpoint. This means a flipped placement can override an opposite sign in the reusable `tsection.dat` definition. When an observed yaw delta is unavailable, the signed section angle plus the TDB flip flag is used as the fallback. Known straight/curve state is retained in provenance, and an import diagnostic reports how many TDB edges were resolved.
-
-Compressed/binary TDB variants are not parsed yet. Dynamic/custom track is supported only where its section geometry can be represented by the current `TrackSection` parser; more complicated MSTS transforms remain future work. If a detected TDB cannot be handled and a supported PAT path is available, RailWeave reports the failed TDB import and falls back to PAT topology rather than silently dropping the route.
-
-`.pat` import remains available directly. A PAT path contains `TrackPDP` waypoints and `TrPathNode` main/siding links; those are mapped into the same graph IR. If a route has multiple PAT files and PAT import is being used, RailWeave imports the first sorted candidate unless a specific `.pat` path is supplied.
-
-`.con` handling is structured rather than only file-level. RailWeave reads ordered `Engine` and `Wagon` entries, preserving engine/wagon role, `Flip` orientation and source `UiD`, and resolves each member to the standard `TRAINS/TRAINSET/<folder>/<name>.eng|.wag` layout case-insensitively. Each member is a rolling-stock asset and each `RollingStockConsist` stores ordered member references to those asset IDs. Missing member files are retained as expected source paths and reported diagnostically instead of being silently dropped.
-
-For each resolved `.eng` / `.wag` member, RailWeave currently parses basic `Wagon` metadata into `RollingStockVehicle`: name/type, mass, width/height/length, axle and wheel counts, brake-system/equipment strings, and maximum brake force. MSTS/OpenRails unit suffixes for mass (`kg`, `lb`, `t`, `t-uk`, `t-us`), distance (`m`, `cm`, `mm`, `km`, `ft`, `in`, `in/2`) and force (`N`, `kN`, `lbf`/`lb`) are converted to SI. Unsupported or malformed values remain unknown and generate diagnostics instead of being guessed. Traction/motor physics, cab and sound data remain future work.
+Portable bridge discovery looks for `.railweave.json`, `.geojson`, `.railweave.csv`, or `railweave-track.csv` inside a detected game source. For other formats or deeper game-specific data, use the [external adapter protocol](adapter-protocol.md).
 
 ## Composition
 
-A version-1 TOML manifest can load either supported raw sources or saved RailWeave JSON IR files. The current composer:
+The version-1 TOML composer can:
 
-- chooses the network from one named input;
-- optionally chooses metadata from another input;
-- gathers assets, structured vehicle metadata and consists from any number of named inputs;
-- remaps asset IDs deterministically so IDs do not collide with the selected network;
-- rewrites both `RollingStockVehicle.asset_id` and every consist member's asset reference through the same remapping table;
-- rejects internally broken vehicle/consist references rather than producing a corrupt composed IR;
-- preserves each entity's original provenance and carries input diagnostics forward.
+- choose a network and metadata source independently;
+- combine raw supported sources and saved IR documents;
+- remap entity and asset IDs deterministically;
+- preserve rolling-stock asset, vehicle and consist references;
+- reject dangling references rather than writing corrupt IR;
+- carry every input diagnostic into the composed result.
 
-This is enough to exercise a genuine cross-simulator path such as a BVE/OpenBVE route plus an ordered MSTS/OpenRails consist with basic vehicle metadata in one IR. It does not yet geometrically merge two independent railway networks or translate MSTS traction/cab/sound systems into an OpenBVE train definition.
+Geometric merging of independent route graphs is not yet automatic. Select one route network and compose assets from other inputs.
 
 ## OpenBVE target
 
-The first target backend exports a driveable path from the generic graph IR as an OpenBVE CSV route. It:
+`railweave convert ... --to openbve` emits a complete package tree with:
 
-- selects a deterministic entry path through the graph;
-- prefers an MSTS/OpenRails edge marked `main` when PAT path provenance identifies a branch as the main path;
-- exports route gauge, `Track.Curve`, `Track.Pitch` and `Track.Limit` state when represented by the IR;
-- uses source segment lengths when available and otherwise approximates length from node coordinates;
-- uses a 1 metre OpenBVE block length and reports any position quantization;
-- reports dropped branches, inferred geometry and other target loss explicitly.
+- deterministic driveable-path selection;
+- gauge, curve, pitch and speed-limit state;
+- station and stop commands when stations exist in the IR;
+- exact source segment lengths when available;
+- a generated `train.dat` from structured vehicle/consist physics;
+- native OpenBVE train asset copying when a native train source exists;
+- a conservative playable fallback train when no rolling stock exists;
+- a UTF-8 `README.txt` and machine-readable `railweave-manifest.json` report.
 
-MSTS TDB edges enriched from `tsection.dat` carry exact section length, average gradient and signed curve radius when the section geometry is available. An end-to-end fixture verifies that a curved TDB section becomes OpenBVE `.Curve` with the expected radius and that observed TDB yaw wins when a reusable section definition has the opposite sign. Known straight MSTS sections are distinguished from unresolved curvature so they no longer generate a false unknown-curvature warning. PAT-only routes remain coarser because PAT stores service/path waypoints rather than the complete route track database.
+Current target losses include non-selected branches, complex signalling, scenery/object placement, cabs and non-native sound translation. Each is surfaced as a coded diagnostic where the source importer can observe it.
 
-The target currently writes route CSV only. Composed rolling-stock assets, structured vehicle metadata and consists, cab, sound and other asset references remain in the RailWeave IR and trigger diagnostics rather than being silently ignored.
+## Diagnostic classes
 
-## Why BVE and MSTS first
+| Range | Area |
+| --- | --- |
+| `RW0xx` | discovery, adapter protocol and source dispatch |
+| `RW1xx` | BVE and portable interchange inputs |
+| `RW2xx` | MSTS / OpenRails |
+| `RW3xx` | composition |
+| `RW4xx` | OpenBVE export and packaging |
 
-BVE and MSTS represent route data in substantially different ways. Getting both through the same graph model early pressure-tests the IR and avoids accidentally designing the core around one simulator.
+Errors stop a conversion. Warnings identify a meaningful approximation or omitted feature. Informational diagnostics record deterministic choices and successful enrichments.

@@ -1,6 +1,11 @@
-use railweave_core::{Diagnostic, EntityId, RailProject, Severity, SourceFormat, TrackEdge, Vec3};
+use railweave_core::{
+    Diagnostic, EntityId, RailProject, RollingStockRole, Severity, SourceFormat, TrackEdge, Vec3,
+};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 const BLOCK_LENGTH_M: f64 = 1.0;
 const EPSILON: f64 = 1.0e-9;
@@ -9,6 +14,43 @@ const EPSILON: f64 = 1.0e-9;
 pub struct ExportedRoute {
     pub csv: String,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PackageOptions {
+    pub name: Option<String>,
+    pub copy_native_openbve_train: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportedPackage {
+    pub root: PathBuf,
+    pub route_path: PathBuf,
+    pub train_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PackageManifest {
+    schema_version: u32,
+    generator: String,
+    package_name: String,
+    route: String,
+    train: String,
+    source_formats: Vec<String>,
+    counts: PackageCounts,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PackageCounts {
+    nodes: usize,
+    edges: usize,
+    stations: usize,
+    assets: usize,
+    vehicles: usize,
+    consists: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +75,417 @@ impl fmt::Display for ExportError {
 }
 
 impl std::error::Error for ExportError {}
+
+fn io_error(code: &'static str, context: impl Into<String>, error: std::io::Error) -> ExportError {
+    ExportError::new(code, format!("{}: {error}", context.into()))
+}
+
+fn package_slug(value: &str) -> String {
+    let mut output = String::new();
+    let mut separator = false;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            output.push(character.to_ascii_lowercase());
+            separator = false;
+        } else if !separator && !output.is_empty() {
+            output.push('-');
+            separator = true;
+        }
+    }
+    output.trim_matches('-').to_string()
+}
+
+fn mean(values: impl Iterator<Item = f64>, fallback: f64) -> f64 {
+    let values: Vec<f64> = values
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .collect();
+    if values.is_empty() {
+        fallback
+    } else {
+        values.iter().sum::<f64>() / values.len() as f64
+    }
+}
+
+fn selected_vehicle_ids(project: &RailProject) -> Vec<(EntityId, RollingStockRole)> {
+    if let Some(consist) = project.consists.first() {
+        return consist
+            .members
+            .iter()
+            .map(|member| (member.asset_id, member.role))
+            .collect();
+    }
+    project
+        .vehicles
+        .iter()
+        .map(|vehicle| {
+            let role = if vehicle.max_power_w.unwrap_or(0.0) > 0.0
+                || vehicle.max_tractive_force_n.unwrap_or(0.0) > 0.0
+            {
+                RollingStockRole::Engine
+            } else {
+                RollingStockRole::Wagon
+            };
+            (vehicle.asset_id, role)
+        })
+        .collect()
+}
+
+fn render_train_dat(project: &RailProject, diagnostics: &mut Vec<Diagnostic>) -> String {
+    let selected = selected_vehicle_ids(project);
+    let by_id: BTreeMap<EntityId, _> = project
+        .vehicles
+        .iter()
+        .map(|vehicle| (vehicle.asset_id, vehicle))
+        .collect();
+    let vehicles: Vec<(_, RollingStockRole)> = selected
+        .iter()
+        .filter_map(|(id, role)| by_id.get(id).map(|vehicle| (*vehicle, *role)))
+        .collect();
+
+    if vehicles.is_empty() {
+        diagnostics.push(Diagnostic::new(
+            Severity::Warning,
+            "RW420_OPENBVE_FALLBACK_TRAIN",
+            "no structured rolling stock was available; generated a conservative one-car OpenBVE fallback train",
+        ));
+    }
+
+    let motor_count = selected
+        .iter()
+        .filter(|(_, role)| *role == RollingStockRole::Engine)
+        .count()
+        .max(1);
+    let total_count = selected.len().max(vehicles.len()).max(1);
+    let trailer_count = total_count.saturating_sub(motor_count);
+    let motor_mass_t = mean(
+        vehicles
+            .iter()
+            .filter(|(_, role)| *role == RollingStockRole::Engine)
+            .filter_map(|(vehicle, _)| vehicle.mass_kg)
+            .map(|mass| mass / 1000.0),
+        42.0,
+    );
+    let trailer_mass_t = mean(
+        vehicles
+            .iter()
+            .filter(|(_, role)| *role == RollingStockRole::Wagon)
+            .filter_map(|(vehicle, _)| vehicle.mass_kg)
+            .map(|mass| mass / 1000.0),
+        36.0,
+    );
+    let length_m = mean(
+        vehicles.iter().filter_map(|(vehicle, _)| vehicle.length_m),
+        20.0,
+    );
+    let width_m = mean(
+        vehicles.iter().filter_map(|(vehicle, _)| vehicle.width_m),
+        2.8,
+    );
+    let height_m = mean(
+        vehicles.iter().filter_map(|(vehicle, _)| vehicle.height_m),
+        3.8,
+    );
+    let total_mass_kg = vehicles
+        .iter()
+        .filter_map(|(vehicle, _)| vehicle.mass_kg)
+        .sum::<f64>()
+        .max((motor_count as f64 * motor_mass_t + trailer_count as f64 * trailer_mass_t) * 1000.0);
+    let tractive_force_n = vehicles
+        .iter()
+        .filter_map(|(vehicle, _)| vehicle.max_tractive_force_n)
+        .sum::<f64>();
+    let brake_force_n = vehicles
+        .iter()
+        .filter_map(|(vehicle, _)| vehicle.max_brake_force_n)
+        .sum::<f64>();
+    let acceleration = if tractive_force_n > 0.0 {
+        (tractive_force_n / total_mass_kg * 3.6).clamp(0.2, 4.0)
+    } else {
+        1.0
+    };
+    let deceleration = if brake_force_n > 0.0 {
+        (brake_force_n / total_mass_kg * 3.6).clamp(0.5, 5.0)
+    } else {
+        1.0
+    };
+    let maximum_speed_kmh = vehicles
+        .iter()
+        .filter_map(|(vehicle, _)| vehicle.max_velocity_mps)
+        .map(|speed| speed * 3.6)
+        .reduce(f64::min)
+        .unwrap_or(120.0)
+        .max(20.0);
+    let front_is_motor = selected
+        .first()
+        .map(|(_, role)| *role == RollingStockRole::Engine)
+        .unwrap_or(true);
+
+    if !vehicles.is_empty()
+        && vehicles
+            .iter()
+            .any(|(vehicle, _)| vehicle.mass_kg.is_none() || vehicle.length_m.is_none())
+    {
+        diagnostics.push(Diagnostic::new(
+            Severity::Warning,
+            "RW421_OPENBVE_TRAIN_DEFAULTS",
+            "missing rolling-stock dimensions or masses were filled with documented conservative defaults",
+        ));
+    }
+
+    let acceleration_low = (acceleration * 0.75).max(0.1);
+    format!(
+        "OPENBVE\n\n#ACCELERATION\n{a},{b},20,{v1},1.2\n{a},{b},35,{v2},1.4\n{a},{b},50,{v3},1.6\n{a},{b},65,{v4},1.8\n\n#PERFORMANCE\n{d}\n0.35\n0\n0.0025\n1.1\n\n#BRAKE\n0\n0\n0\n\n#PRESSURE\n440\n440\n690\n780\n490\n\n#HANDLE\n0\n4\n8\n0\n\n#CAB\n0\n2600\n-1000\n0\n\n#CAR\n{mm}\n{mc}\n{tm}\n{tc}\n{length}\n{front}\n{width}\n{height}\n1.6\n{area}\n{unexposed}\n\n#DEVICE\n-1\n0\n0\n0\n0\n0\n0\n0\n",
+        a = fmt_number(acceleration),
+        b = fmt_number(acceleration_low),
+        v1 = fmt_number((maximum_speed_kmh * 0.35).max(20.0)),
+        v2 = fmt_number((maximum_speed_kmh * 0.55).max(35.0)),
+        v3 = fmt_number((maximum_speed_kmh * 0.75).max(50.0)),
+        v4 = fmt_number(maximum_speed_kmh),
+        d = fmt_number(deceleration),
+        mm = fmt_number(motor_mass_t),
+        mc = motor_count,
+        tm = fmt_number(trailer_mass_t),
+        tc = trailer_count,
+        length = fmt_number(length_m),
+        front = u8::from(front_is_motor),
+        width = fmt_number(width_m),
+        height = fmt_number(height_m),
+        area = fmt_number(width_m * height_m * 0.6),
+        unexposed = fmt_number(width_m * height_m * 0.2),
+    )
+}
+
+fn native_train_root(project: &RailProject) -> Option<PathBuf> {
+    project
+        .assets
+        .iter()
+        .find(|asset| {
+            asset.provenance.source_format == SourceFormat::BveOpenBve
+                && asset
+                    .provenance
+                    .source_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.eq_ignore_ascii_case("train.dat"))
+                    .unwrap_or(false)
+        })
+        .and_then(|asset| asset.provenance.source_path.parent().map(Path::to_path_buf))
+}
+
+fn copy_tree(source: &Path, target: &Path, copied: &mut usize) -> Result<(), ExportError> {
+    if *copied >= 20_000 {
+        return Err(ExportError::new(
+            "RW422_OPENBVE_ASSET_LIMIT",
+            "native OpenBVE train contains more than 20,000 entries",
+        ));
+    }
+    fs::create_dir_all(target).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            target.display().to_string(),
+            error,
+        )
+    })?;
+    for entry in fs::read_dir(source).map_err(|error| {
+        io_error(
+            "RW424_OPENBVE_ASSET_READ",
+            source.display().to_string(),
+            error,
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            io_error(
+                "RW424_OPENBVE_ASSET_READ",
+                source.display().to_string(),
+                error,
+            )
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            io_error(
+                "RW424_OPENBVE_ASSET_READ",
+                entry.path().display().to_string(),
+                error,
+            )
+        })?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        let destination = target.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_tree(&entry.path(), &destination, copied)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &destination).map_err(|error| {
+                io_error(
+                    "RW423_OPENBVE_WRITE_FAILED",
+                    destination.display().to_string(),
+                    error,
+                )
+            })?;
+            *copied += 1;
+        }
+    }
+    Ok(())
+}
+
+pub fn export_package(
+    project: &RailProject,
+    output: &Path,
+    options: &PackageOptions,
+) -> Result<ExportedPackage, ExportError> {
+    let display_name = options
+        .name
+        .as_deref()
+        .or(project.metadata.title.as_deref())
+        .unwrap_or("RailWeave conversion");
+    let slug = package_slug(display_name);
+    let slug = if slug.is_empty() { "railweave" } else { &slug };
+    let route_dir = output.join("Railway").join("Route").join(slug);
+    let train_dir = output.join("Train").join(slug);
+    fs::create_dir_all(&route_dir).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            route_dir.display().to_string(),
+            error,
+        )
+    })?;
+    fs::create_dir_all(&train_dir).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            train_dir.display().to_string(),
+            error,
+        )
+    })?;
+
+    let mut exported_route = render_route(project)?;
+    exported_route
+        .diagnostics
+        .retain(|diagnostic| diagnostic.code != "RW414_OPENBVE_ASSETS_NOT_EXPORTED");
+    let train_namespace = format!("With Train\n.Folder {slug}\n\n");
+    exported_route.csv =
+        exported_route
+            .csv
+            .replacen("With Track\n", &format!("{train_namespace}With Track\n"), 1);
+    let route_path = route_dir.join("route.csv");
+    fs::write(&route_path, &exported_route.csv).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            route_path.display().to_string(),
+            error,
+        )
+    })?;
+
+    let mut diagnostics = exported_route.diagnostics;
+    let mut copied_native = false;
+    if options.copy_native_openbve_train {
+        if let Some(native) = native_train_root(project).filter(|path| path.is_dir()) {
+            let canonical_native = fs::canonicalize(&native).map_err(|error| {
+                io_error(
+                    "RW424_OPENBVE_ASSET_READ",
+                    native.display().to_string(),
+                    error,
+                )
+            })?;
+            let canonical_train_dir = fs::canonicalize(&train_dir).map_err(|error| {
+                io_error(
+                    "RW423_OPENBVE_WRITE_FAILED",
+                    train_dir.display().to_string(),
+                    error,
+                )
+            })?;
+            if canonical_train_dir.starts_with(&canonical_native) {
+                return Err(ExportError::new(
+                    "RW427_OPENBVE_OUTPUT_INSIDE_SOURCE",
+                    "OpenBVE package output may not be placed inside the native source train directory",
+                ));
+            }
+            let mut copied = 0;
+            copy_tree(&native, &train_dir, &mut copied)?;
+            copied_native = true;
+            diagnostics.push(Diagnostic::new(
+                Severity::Info,
+                "RW425_OPENBVE_NATIVE_TRAIN_COPIED",
+                format!("copied {copied} native OpenBVE train asset file(s)"),
+            ));
+        }
+    }
+
+    let train_path = train_dir.join("train.dat");
+    if !copied_native || !train_path.exists() {
+        let train_dat = render_train_dat(project, &mut diagnostics);
+        fs::write(&train_path, train_dat).map_err(|error| {
+            io_error(
+                "RW423_OPENBVE_WRITE_FAILED",
+                train_path.display().to_string(),
+                error,
+            )
+        })?;
+    }
+
+    let readme = format!(
+        "{display_name}\n\nGenerated by RailWeave {}.\n\nRoute: Railway/Route/{slug}/route.csv\nTrain: Train/{slug}/train.dat\n\nOpen this package root in OpenBVE. Review railweave-manifest.json for conversion diagnostics and provenance.\n",
+        env!("CARGO_PKG_VERSION")
+    );
+    fs::write(output.join("README.txt"), readme).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            output.display().to_string(),
+            error,
+        )
+    })?;
+
+    let source_formats: BTreeSet<String> = project
+        .network
+        .edges
+        .iter()
+        .filter_map(|edge| edge.provenance.as_ref())
+        .map(|provenance| provenance.source_format.to_string())
+        .chain(
+            project
+                .assets
+                .iter()
+                .map(|asset| asset.provenance.source_format.to_string()),
+        )
+        .collect();
+    let manifest = PackageManifest {
+        schema_version: 1,
+        generator: format!("RailWeave {}", env!("CARGO_PKG_VERSION")),
+        package_name: display_name.to_string(),
+        route: format!("Railway/Route/{slug}/route.csv"),
+        train: format!("Train/{slug}/train.dat"),
+        source_formats: source_formats.into_iter().collect(),
+        counts: PackageCounts {
+            nodes: project.network.nodes.len(),
+            edges: project.network.edges.len(),
+            stations: project.stations.len(),
+            assets: project.assets.len(),
+            vehicles: project.vehicles.len(),
+            consists: project.consists.len(),
+        },
+        diagnostics: diagnostics.clone(),
+    };
+    let manifest_path = output.join("railweave-manifest.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|error| {
+        ExportError::new(
+            "RW426_OPENBVE_MANIFEST",
+            format!("failed to encode manifest: {error}"),
+        )
+    })?;
+    fs::write(&manifest_path, format!("{manifest_json}\n")).map_err(|error| {
+        io_error(
+            "RW423_OPENBVE_WRITE_FAILED",
+            manifest_path.display().to_string(),
+            error,
+        )
+    })?;
+
+    Ok(ExportedPackage {
+        root: output.to_path_buf(),
+        route_path,
+        train_path,
+        manifest_path,
+        diagnostics,
+    })
+}
 
 fn is_main_edge(edge: &TrackEdge) -> bool {
     edge.provenance
@@ -224,6 +677,21 @@ fn quantize_position(position: f64) -> f64 {
     (position / BLOCK_LENGTH_M).round() * BLOCK_LENGTH_M
 }
 
+fn position_key(position: f64) -> i64 {
+    (quantize_position(position) * 1000.0).round() as i64
+}
+
+fn station_name(name: &str) -> String {
+    name.chars()
+        .map(|character| match character {
+            ',' | ';' | '\n' | '\r' => ' ',
+            other => other,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError> {
     let mut diagnostics = Vec::new();
     let path = select_driveable_path(project, &mut diagnostics)?;
@@ -233,6 +701,50 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
         .iter()
         .map(|node| (node.id, node.position))
         .collect();
+    let mut node_positions = BTreeMap::new();
+    let mut path_position = 0.0;
+    for edge in &path {
+        node_positions.entry(edge.from).or_insert(path_position);
+        let from = nodes[&edge.from];
+        let to = nodes[&edge.to];
+        let length = edge
+            .length_m
+            .filter(|length| *length > EPSILON)
+            .unwrap_or_else(|| {
+                let horizontal = horizontal_distance(from, to);
+                if horizontal > EPSILON {
+                    horizontal
+                } else {
+                    (to.y - from.y).abs()
+                }
+            });
+        path_position += length;
+        node_positions.insert(edge.to, path_position);
+    }
+    let mut stations: BTreeMap<i64, Vec<&railweave_core::Station>> = BTreeMap::new();
+    for station in &project.stations {
+        let position = station.position_m.or_else(|| {
+            station
+                .node_id
+                .and_then(|id| node_positions.get(&id).copied())
+        });
+        if let Some(position) = position.filter(|position| position.is_finite() && *position >= 0.0)
+        {
+            stations
+                .entry(position_key(position))
+                .or_default()
+                .push(station);
+        } else {
+            diagnostics.push(Diagnostic::new(
+                Severity::Warning,
+                "RW415_OPENBVE_STATION_UNPLACED",
+                format!(
+                    "station {:?} is not on the selected driveable path",
+                    station.name
+                ),
+            ));
+        }
+    }
 
     let gauges: BTreeSet<u32> = path.iter().filter_map(|edge| edge.gauge_mm).collect();
     let gauge = gauges.iter().next().copied().unwrap_or(1435);
@@ -335,6 +847,16 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
         }
 
         let mut commands = Vec::new();
+        if let Some(at_position) = stations.get(&position_key(position)) {
+            for station in at_position {
+                commands.push(format!(
+                    ".Sta {};;;;B;;;;{};100",
+                    station_name(&station.name),
+                    fmt_number(station.stop_time_s.max(1.0))
+                ));
+                commands.push(".Stop 0;5;5;0".to_string());
+            }
+        }
         if option_changed(previous_gradient, gradient) {
             commands.push(format!(".Pitch {}", fmt_number(gradient.unwrap_or(0.0))));
             previous_gradient = gradient;
@@ -362,8 +884,25 @@ pub fn render_route(project: &RailProject) -> Result<ExportedRoute, ExportError>
     if (final_position - cumulative).abs() > 0.000_001 {
         quantized = true;
     }
-    csv.push_str(&fmt_number(final_position));
-    csv.push('\n');
+    if let Some(at_position) = stations.get(&position_key(final_position)) {
+        let mut commands = Vec::new();
+        for station in at_position {
+            commands.push(format!(
+                ".Sta {};S;T;;B;1;;;{};100",
+                station_name(&station.name),
+                fmt_number(station.stop_time_s.max(1.0))
+            ));
+            commands.push(".Stop 0;5;5;0".to_string());
+        }
+        csv.push_str(&format!(
+            "{}, {}\n",
+            fmt_number(final_position),
+            commands.join(", ")
+        ));
+    } else {
+        csv.push_str(&fmt_number(final_position));
+        csv.push('\n');
+    }
 
     if inferred_length {
         diagnostics.push(Diagnostic::new(
@@ -416,15 +955,21 @@ mod tests {
     use railweave_adapters::import_path;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn fixture() -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("railweave-openbve-{}-{nonce}", std::process::id()));
+        let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "railweave-openbve-{}-{nonce}-{sequence}",
+            std::process::id()
+        ));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -491,6 +1036,41 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == "RW412_OPENBVE_UNKNOWN_CURVATURE"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn writes_a_playable_package_with_route_train_and_manifest() {
+        let root = fixture();
+        let source = root.join("demo.railweave.csv");
+        fs::write(
+            &source,
+            "x,y,z,gauge_mm,speed_limit_kmh,station\n0,0,0,1435,60,Origin\n0,1,100,1435,80,\n0,2,200,1435,80,Terminus\n",
+        )
+        .unwrap();
+        let imported = import_path(&source).unwrap();
+        let output = root.join("package");
+        let package = export_package(
+            &imported.project,
+            &output,
+            &PackageOptions {
+                name: Some("Demo Route".to_string()),
+                copy_native_openbve_train: true,
+            },
+        )
+        .unwrap();
+
+        let route = fs::read_to_string(&package.route_path).unwrap();
+        let train = fs::read_to_string(&package.train_path).unwrap();
+        let manifest = fs::read_to_string(&package.manifest_path).unwrap();
+        assert!(route.contains(".Folder demo-route"));
+        assert!(route.contains(".Sta Origin"));
+        assert!(route.contains(".Sta Terminus"));
+        assert!(route.contains(".Limit 60"));
+        assert!(route.contains("100, .Limit 80"));
+        assert!(train.starts_with("OPENBVE"));
+        assert!(train.contains("#CAR"));
+        assert!(manifest.contains("\"package_name\": \"Demo Route\""));
         fs::remove_dir_all(root).ok();
     }
 }

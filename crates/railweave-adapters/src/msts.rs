@@ -198,10 +198,11 @@ fn parse_pat(text: &str) -> (Vec<Pdp>, Vec<PathNode>, Option<String>) {
                     });
                 }
             }
-            "name" if tokens.get(index + 1).map(String::as_str) == Some("(") => {
-                if path_name.is_none() {
-                    path_name = tokens.get(index + 2).cloned();
-                }
+            "name"
+                if tokens.get(index + 1).map(String::as_str) == Some("(")
+                    && path_name.is_none() =>
+            {
+                path_name = tokens.get(index + 2).cloned();
             }
             _ => {}
         }
@@ -895,7 +896,7 @@ pub(crate) fn import(root: &Path) -> Result<ImportResult, ImportError> {
         result.diagnostics.push(Diagnostic::new(
             Severity::Info,
             "RW208_MSTS_ASSET_IMPORT_SCOPE",
-            "MSTS/OpenRails .con files are represented as rolling-stock source asset references; consist vehicles, physics, cabs and sounds are future work",
+            "MSTS/OpenRails .con files are retained as rolling-stock sources and enriched into ordered consists plus available ENG/WAG physics; deep cabs and sounds require additional conversion",
         ));
     }
 

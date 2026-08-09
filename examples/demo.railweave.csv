@@ -1,0 +1,5 @@
+x,y,z,gauge_mm,speed_limit_kmh,curve_radius_m,gradient_per_mille,station,stop_time_s
+0,0,0,1435,60,,,Origin,30
+0,1,100,1435,80,,10,,
+6,2,200,1435,80,850,10,,
+24,2,300,1435,60,850,0,Terminus,45

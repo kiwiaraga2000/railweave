@@ -4,12 +4,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+description = "OpenBVE route and train package exporter for RailWeave"
+publish = false
 
 [dependencies]
-railweave-core = { path = "../railweave-core" }
+railweave-core = { version = "0.1.0", path = "../railweave-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
-railweave-adapters = { path = "../railweave-adapters" }
+railweave-adapters = { version = "0.1.0", path = "../railweave-adapters" }
 
 [lints]
 workspace = true

@@ -318,6 +318,10 @@ mod tests {
             brake_system_type: Some("Air_single_pipe".to_string()),
             brake_equipment_type: None,
             max_brake_force_n: Some(150_000.0),
+            max_power_w: Some(3_000_000.0),
+            max_tractive_force_n: Some(250_000.0),
+            max_continuous_force_n: Some(180_000.0),
+            max_velocity_mps: Some(38.888_888_9),
         });
         stock.consists.push(RollingStockConsist {
             name: Some("ED4M".to_string()),
