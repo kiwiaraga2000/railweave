@@ -1,0 +1,32 @@
+name: Format support
+description: Propose or track a source/target adapter
+title: "format: "
+labels: [format]
+body:
+  - type: input
+    id: simulator
+    attributes:
+      label: Simulator and exact version
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant file types and official documentation
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Minimum useful conversion scope
+      description: Separate route geometry, signalling, scenery, rolling stock, cab and sound requirements.
+    validations:
+      required: true
+  - type: checkboxes
+    id: legal
+    attributes:
+      label: Legal and fixture status
+      options:
+        - label: This request does not require DRM circumvention.
+          required: true
+        - label: A synthetic or redistributable fixture can be provided.

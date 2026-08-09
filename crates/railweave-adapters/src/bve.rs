@@ -1,7 +1,7 @@
 use crate::detectors::{bve_route_candidates, decode_text, entries};
 use railweave_core::{
     AssetKind, AssetRef, Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity,
-    SourceFormat, TrackEdge, TrackNode, Vec3,
+    SourceFormat, Station, TrackEdge, TrackNode, Vec3,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -165,6 +165,48 @@ fn command_number(command: &Command, index: usize) -> Option<f64> {
         .filter(|value| value.is_finite())
 }
 
+fn parse_route_gauge(text: &str) -> Option<u32> {
+    let mut namespace_route = false;
+    for raw_line in text.lines() {
+        let line = raw_line.trim().trim_start_matches('\u{feff}');
+        let lower = line.to_ascii_lowercase();
+        if lower == "with route" {
+            namespace_route = true;
+            continue;
+        }
+        if lower.starts_with("with ") {
+            namespace_route = false;
+            continue;
+        }
+        for expression in split_quoted(line, ',') {
+            let expression = expression.trim();
+            let lower = expression.to_ascii_lowercase();
+            let remainder = if let Some(value) = lower.strip_prefix("route.gauge") {
+                value
+            } else if namespace_route {
+                let Some(value) = lower.strip_prefix(".gauge") else {
+                    continue;
+                };
+                value
+            } else {
+                continue;
+            };
+            let value = remainder
+                .trim()
+                .trim_start_matches('=')
+                .trim()
+                .split(|character: char| character == ';' || character.is_whitespace())
+                .next()?;
+            if let Ok(gauge) = value.parse::<f64>() {
+                if gauge.is_finite() && gauge > 0.0 && gauge <= u32::MAX as f64 {
+                    return Some(gauge.round() as u32);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn integrate(position: Vec3, heading: f64, distance: f64, state: GeometryState) -> (Vec3, f64) {
     let dy = distance * state.pitch_per_mille / 1000.0;
     if state.radius.abs() < 1e-9 {
@@ -239,6 +281,7 @@ fn import_route(
         )
     })?;
     let text = decode_text(&bytes);
+    let gauge_mm = parse_route_gauge(&text);
     let events = parse_events(&text);
     if events.is_empty() {
         return Err(ImportError::new(
@@ -301,7 +344,7 @@ fn import_route(
                 id: next_id,
                 from: previous_node_id,
                 to: node_id,
-                gauge_mm: None,
+                gauge_mm,
                 electrification: None,
                 speed_limit_kmh: edge_state.speed_limit_kmh,
                 length_m: Some(segment_length),
@@ -341,6 +384,27 @@ fn import_route(
                         state.speed_limit_kmh = if speed > 0.0 { Some(speed) } else { None };
                     }
                 }
+                "sta" | "station" => {
+                    let name = command
+                        .args
+                        .first()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("Unnamed station")
+                        .to_string();
+                    let stop_time_s = if command.name == "sta" {
+                        command_number(&command, 8).unwrap_or(15.0)
+                    } else {
+                        15.0
+                    };
+                    project.stations.push(Station {
+                        name,
+                        node_id: Some(previous_node_id),
+                        position_m: Some(position),
+                        stop_time_s,
+                        provenance: Some(route_provenance(Some(format!("station:{position}")))),
+                    });
+                }
                 "turn" => ignored_turn = true,
                 "rail" | "railstart" | "railend" | "switch" => ignored_auxiliary_rails = true,
                 _ => {}
@@ -372,7 +436,7 @@ fn import_route(
         Diagnostic::new(
             Severity::Info,
             "RW112_BVE_IMPORT_SCOPE",
-            "current BVE route importer converts primary-rail Curve, Pitch and Limit data; stations, signalling, scenery and auxiliary rails are future work",
+            "BVE route import preserved primary-rail Curve, Pitch, Limit and station data; signalling, scenery and auxiliary rails remain outside the current IR path",
         )
         .with_provenance(route_provenance(None)),
     );
@@ -478,7 +542,7 @@ mod tests {
         let route = root.join("route.csv");
         fs::write(
             &route,
-            "With Track\n0, .Pitch 10\n100, .Curve 500; 0\n200, .Limit 80\n300, .Curve 0; 0\n",
+            "With Route\n.Gauge 1520\nWith Track\n0, .Pitch 10\n100, .Curve 500; 0\n200, .Limit 80, .Sta Central;;;;B;;;;25\n300, .Curve 0; 0\n",
         )
         .unwrap();
 
@@ -491,6 +555,7 @@ mod tests {
             Some(80.0)
         );
         assert_eq!(imported.project.network.edges[0].length_m, Some(100.0));
+        assert_eq!(imported.project.network.edges[0].gauge_mm, Some(1520));
         assert_eq!(
             imported.project.network.edges[0].gradient_per_mille,
             Some(10.0)
@@ -499,6 +564,9 @@ mod tests {
             imported.project.network.edges[1].curve_radius_m,
             Some(500.0)
         );
+        assert_eq!(imported.project.stations.len(), 1);
+        assert_eq!(imported.project.stations[0].name, "Central");
+        assert_eq!(imported.project.stations[0].stop_time_s, 25.0);
         fs::remove_dir_all(root).ok();
     }
 

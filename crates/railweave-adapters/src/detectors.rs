@@ -1,4 +1,5 @@
 use railweave_core::{walk_limited, Detection, SourceDetector, SourceFormat};
+use std::cmp::Reverse;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,6 +8,9 @@ const MAX_SCAN_ENTRIES: usize = 20_000;
 
 pub fn built_in_detectors() -> Vec<Box<dyn SourceDetector>> {
     vec![
+        Box::new(RailWeaveDetector),
+        Box::new(GeoJsonDetector),
+        Box::new(TrackCsvDetector),
         Box::new(MstsDetector),
         Box::new(TrainzDetector),
         Box::new(BveDetector),
@@ -15,13 +19,104 @@ pub fn built_in_detectors() -> Vec<Box<dyn SourceDetector>> {
     ]
 }
 
+pub struct TrackCsvDetector;
+
+impl SourceDetector for TrackCsvDetector {
+    fn id(&self) -> &'static str {
+        "railweave-track-csv"
+    }
+
+    fn format(&self) -> SourceFormat {
+        SourceFormat::TrackCsv
+    }
+
+    fn detect(&self, root: &Path) -> Detection {
+        let mut result = Detection::none(self.id(), self.format());
+        if root.is_file() {
+            let name = lower_name(root);
+            let first_line = read_prefix(root, 4096)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            if name.ends_with(".railweave.csv") || name == "railweave-track.csv" {
+                result.add(80, "found RailWeave portable track CSV name");
+            }
+            let columns: Vec<&str> = first_line.split(',').map(str::trim).collect();
+            if columns.contains(&"x") && columns.contains(&"z") {
+                result.add(20, "found explicit x/z metric coordinate columns");
+            }
+        }
+        result
+    }
+}
+
+pub struct RailWeaveDetector;
+
+impl SourceDetector for RailWeaveDetector {
+    fn id(&self) -> &'static str {
+        "railweave"
+    }
+
+    fn format(&self) -> SourceFormat {
+        SourceFormat::RailWeave
+    }
+
+    fn detect(&self, root: &Path) -> Detection {
+        let mut result = Detection::none(self.id(), self.format());
+        if root.is_file() {
+            let name = lower_name(root);
+            let text = read_prefix(root, 64 * 1024);
+            if name.ends_with(".railweave.json") {
+                result.add(90, "found .railweave.json interchange file");
+            }
+            if text.contains("\"schema_version\"")
+                && text.contains("\"project\"")
+                && text.contains("\"diagnostics\"")
+            {
+                result.add(10, "found versioned RailWeave IR document structure");
+            }
+        }
+        result
+    }
+}
+
+pub struct GeoJsonDetector;
+
+impl SourceDetector for GeoJsonDetector {
+    fn id(&self) -> &'static str {
+        "geojson"
+    }
+
+    fn format(&self) -> SourceFormat {
+        SourceFormat::GeoJson
+    }
+
+    fn detect(&self, root: &Path) -> Detection {
+        let mut result = Detection::none(self.id(), self.format());
+        if root.is_file() {
+            let name = lower_name(root);
+            let text = read_prefix(root, 128 * 1024);
+            if name.ends_with(".geojson") {
+                result.add(75, "found .geojson file");
+            }
+            if text.contains("\"type\"")
+                && (text.contains("\"linestring\"") || text.contains("\"multilinestring\""))
+            {
+                result.add(25, "found GeoJSON line geometry");
+            }
+        }
+        result
+    }
+}
+
 pub fn detect_all(root: &Path) -> Vec<Detection> {
     let mut detections: Vec<Detection> = built_in_detectors()
         .into_iter()
         .map(|detector| detector.detect(root))
         .filter(|detection| detection.confidence > 0)
         .collect();
-    detections.sort_by(|a, b| b.confidence.cmp(&a.confidence));
+    detections.sort_by_key(|detection| Reverse(detection.confidence));
     detections
 }
 
@@ -96,7 +191,7 @@ pub(crate) fn bve_route_candidates(root: &Path) -> Vec<PathBuf> {
         .filter(|path| {
             path.extension()
                 .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("csv"))
+                .map(|ext| ext.eq_ignore_ascii_case("csv") || ext.eq_ignore_ascii_case("rw"))
                 .unwrap_or(false)
         })
         .filter(|path| {

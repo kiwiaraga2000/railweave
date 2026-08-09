@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible parser, conversion or packaging defect
+title: "bug: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: RailWeave version
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source ecosystem
+      options:
+        - BVE / OpenBVE
+        - MSTS / OpenRails
+        - GeoJSON
+        - RailWeave track CSV
+        - External adapter
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the command, diagnostic codes and a small redistributable fixture when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: Fixture rights
+      options:
+        - label: Any attached fixture is original or may legally be redistributed.
+          required: true

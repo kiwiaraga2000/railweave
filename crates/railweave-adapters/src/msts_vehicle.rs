@@ -11,6 +11,8 @@ enum UnitKind {
     Mass,
     Distance,
     Force,
+    Power,
+    Speed,
 }
 
 #[derive(Debug, Default)]
@@ -26,6 +28,10 @@ struct ParsedVehicle {
     brake_system_type: Option<String>,
     brake_equipment_type: Option<String>,
     max_brake_force_n: Option<f64>,
+    max_power_w: Option<f64>,
+    max_tractive_force_n: Option<f64>,
+    max_continuous_force_n: Option<f64>,
+    max_velocity_mps: Option<f64>,
 }
 
 fn stf_tokens(text: &str) -> Vec<String> {
@@ -178,6 +184,19 @@ fn quantity(raw: &str, kind: UnitKind) -> Result<f64, String> {
             "lbf" | "lb" => 4.448_221_62,
             _ => return Err(format!("unsupported force unit {suffix:?} in {raw:?}")),
         },
+        UnitKind::Power => match suffix.as_str() {
+            "" | "w" => 1.0,
+            "kw" => 1_000.0,
+            "mw" => 1_000_000.0,
+            "hp" => 745.699_872,
+            _ => return Err(format!("unsupported power unit {suffix:?} in {raw:?}")),
+        },
+        UnitKind::Speed => match suffix.as_str() {
+            "" | "m/s" | "mps" => 1.0,
+            "km/h" | "kmh" | "kph" => 1.0 / 3.6,
+            "mph" => 0.447_04,
+            _ => return Err(format!("unsupported speed unit {suffix:?} in {raw:?}")),
+        },
     };
     Ok(value * scale)
 }
@@ -208,6 +227,13 @@ fn parse_vehicle(text: &str) -> Result<(ParsedVehicle, Vec<String>), String> {
     let mass_kg = parse_quantity_field(wagon, "mass", UnitKind::Mass, &mut warnings);
     let max_brake_force_n =
         parse_quantity_field(wagon, "maxbrakeforce", UnitKind::Force, &mut warnings);
+    let max_power_w = parse_quantity_field(wagon, "maxpower", UnitKind::Power, &mut warnings);
+    let max_tractive_force_n =
+        parse_quantity_field(wagon, "maxforce", UnitKind::Force, &mut warnings);
+    let max_continuous_force_n =
+        parse_quantity_field(wagon, "maxcontinuousforce", UnitKind::Force, &mut warnings);
+    let max_velocity_mps =
+        parse_quantity_field(wagon, "maxvelocity", UnitKind::Speed, &mut warnings);
 
     let (width_m, height_m, length_m) = if let Some(size) = block_values(wagon, "size") {
         if size.len() < 3 {
@@ -255,6 +281,10 @@ fn parse_vehicle(text: &str) -> Result<(ParsedVehicle, Vec<String>), String> {
             brake_system_type: first_value(wagon, "brakesystemtype"),
             brake_equipment_type: first_value(wagon, "brakeequipmenttype"),
             max_brake_force_n,
+            max_power_w,
+            max_tractive_force_n,
+            max_continuous_force_n,
+            max_velocity_mps,
         },
         warnings,
     ))
@@ -345,6 +375,10 @@ pub(crate) fn enrich_vehicle_metadata(result: &mut ImportResult) {
             brake_system_type: vehicle.brake_system_type,
             brake_equipment_type: vehicle.brake_equipment_type,
             max_brake_force_n: vehicle.max_brake_force_n,
+            max_power_w: vehicle.max_power_w,
+            max_tractive_force_n: vehicle.max_tractive_force_n,
+            max_continuous_force_n: vehicle.max_continuous_force_n,
+            max_velocity_mps: vehicle.max_velocity_mps,
         });
         parsed_count += 1;
     }
@@ -419,7 +453,7 @@ mod tests {
         assert!(warnings.is_empty());
         assert!((vehicle.mass_kg.unwrap() - 45_359.237).abs() < 0.001);
         assert!((vehicle.length_m.unwrap() - 19.812).abs() < 0.001);
-        assert!((vehicle.max_brake_force_n.unwrap() - 133_446.6486).abs() < 0.001);
+        assert!((vehicle.max_brake_force_n.unwrap() - 133_446.648_6).abs() < 0.001);
     }
 
     #[test]

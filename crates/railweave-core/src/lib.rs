@@ -8,11 +8,24 @@ pub const IR_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceFormat {
+    #[serde(rename = "bve-openbve", alias = "bve-open-bve")]
     BveOpenBve,
+    #[serde(rename = "msts-openrails", alias = "msts-open-rails")]
     MstsOpenRails,
     Trainz,
+    #[serde(rename = "railworks", alias = "rail-works")]
     RailWorks,
+    #[serde(rename = "loksim3d", alias = "loksim3-d")]
     Loksim3D,
+    #[serde(rename = "geojson", alias = "geo-json")]
+    GeoJson,
+    #[serde(rename = "railml", alias = "rail-ml")]
+    RailMl,
+    #[serde(rename = "railweave", alias = "rail-weave")]
+    RailWeave,
+    #[serde(rename = "railweave-track-csv")]
+    TrackCsv,
+    External,
     Unknown,
 }
 
@@ -24,6 +37,11 @@ impl fmt::Display for SourceFormat {
             Self::Trainz => "Trainz",
             Self::RailWorks => "Train Simulator / RailWorks",
             Self::Loksim3D => "Loksim3D",
+            Self::GeoJson => "GeoJSON",
+            Self::RailMl => "railML",
+            Self::RailWeave => "RailWeave interchange",
+            Self::TrackCsv => "RailWeave track CSV",
+            Self::External => "external adapter",
             Self::Unknown => "unknown",
         };
         f.write_str(value)
@@ -154,6 +172,20 @@ pub struct RailwayNetwork {
     pub edges: Vec<TrackEdge>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Station {
+    pub name: String,
+    pub node_id: Option<EntityId>,
+    pub position_m: Option<f64>,
+    #[serde(default = "default_stop_time_s")]
+    pub stop_time_s: f64,
+    pub provenance: Option<Provenance>,
+}
+
+const fn default_stop_time_s() -> f64 {
+    30.0
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetKind {
@@ -210,6 +242,14 @@ pub struct RollingStockVehicle {
     pub brake_system_type: Option<String>,
     pub brake_equipment_type: Option<String>,
     pub max_brake_force_n: Option<f64>,
+    #[serde(default)]
+    pub max_power_w: Option<f64>,
+    #[serde(default)]
+    pub max_tractive_force_n: Option<f64>,
+    #[serde(default)]
+    pub max_continuous_force_n: Option<f64>,
+    #[serde(default)]
+    pub max_velocity_mps: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -228,6 +268,8 @@ pub struct RailProject {
     pub consists: Vec<RollingStockConsist>,
     #[serde(default)]
     pub vehicles: Vec<RollingStockVehicle>,
+    #[serde(default)]
+    pub stations: Vec<Station>,
 }
 
 impl RailProject {

@@ -1,7 +1,7 @@
-use railweave_adapters::{detect_all, import_path};
+use railweave_adapters::{detect_all, import_external, import_path};
 use railweave_compose::compose_manifest;
 use railweave_core::{Detection, ImportResult, Severity};
-use railweave_openbve::render_route;
+use railweave_openbve::{export_package, render_route, PackageOptions};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 fn usage() {
     eprintln!(
-        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n  railweave compose <manifest.toml> [-o <composed.railweave.json>]\n  railweave export openbve <project.railweave.json> [-o <route.csv>]\n"
+        "RailWeave\n\nUsage:\n  railweave scan <path>\n  railweave import <path> [-o <project.railweave.json>]\n  railweave compose <manifest.toml> [-o <composed.railweave.json>]\n  railweave export openbve <project.railweave.json> [-o <route.csv>]\n  railweave convert <source> --to openbve -o <package-dir> [--name <name>] [--adapter <program>] [--no-copy-native]\n"
     );
 }
 
@@ -95,10 +95,12 @@ fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> Exi
         }
 
         println!(
-            "{verb} {} nodes, {} edges, {} assets, {} consists -> {}",
+            "{verb} {} nodes, {} edges, {} stations, {} assets, {} vehicles, {} consists -> {}",
             result.project.network.nodes.len(),
             result.project.network.edges.len(),
+            result.project.stations.len(),
             result.project.assets.len(),
+            result.project.vehicles.len(),
             result.project.consists.len(),
             output.display()
         );
@@ -108,6 +110,58 @@ fn write_result(result: &ImportResult, output: Option<&Path>, verb: &str) -> Exi
     }
 
     ExitCode::SUCCESS
+}
+
+fn convert(
+    path: &Path,
+    output: &Path,
+    name: Option<String>,
+    copy_native: bool,
+    adapter: Option<&Path>,
+) -> ExitCode {
+    let imported = match adapter.map_or_else(
+        || import_path(path),
+        |adapter| import_external(adapter, path),
+    ) {
+        Ok(imported) => imported,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let options = PackageOptions {
+        name,
+        copy_native_openbve_train: copy_native,
+    };
+    let package = match export_package(&imported.project, output, &options) {
+        Ok(package) => package,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    println!(
+        "Converted {} nodes, {} edges, {} vehicles -> OpenBVE package {}",
+        imported.project.network.nodes.len(),
+        imported.project.network.edges.len(),
+        imported.project.vehicles.len(),
+        package.root.display()
+    );
+    println!("  route: {}", package.route_path.display());
+    println!("  train: {}", package.train_path.display());
+    println!("  report: {}", package.manifest_path.display());
+    print_diagnostics(&imported.diagnostics);
+    print_diagnostics(&package.diagnostics);
+    if imported
+        .diagnostics
+        .iter()
+        .chain(package.diagnostics.iter())
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn import(path: &Path, output: Option<&Path>) -> ExitCode {
@@ -262,8 +316,75 @@ fn main() -> ExitCode {
             };
             export_openbve(Path::new(&path), output.as_deref().map(Path::new))
         }
+        "convert" => {
+            let Some(path) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            let mut output = None;
+            let mut name = None;
+            let mut target = None;
+            let mut copy_native = true;
+            let mut adapter = None;
+            while let Some(option) = args.next() {
+                match option.to_string_lossy().as_ref() {
+                    "-o" | "--output" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("error: {} requires a path", option.to_string_lossy());
+                            return ExitCode::from(2);
+                        };
+                        output = Some(value);
+                    }
+                    "--name" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("error: --name requires a value");
+                            return ExitCode::from(2);
+                        };
+                        name = Some(value.to_string_lossy().into_owned());
+                    }
+                    "--adapter" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("error: --adapter requires an executable path");
+                            return ExitCode::from(2);
+                        };
+                        adapter = Some(value);
+                    }
+                    "--to" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("error: --to requires a target");
+                            return ExitCode::from(2);
+                        };
+                        target = Some(value.to_string_lossy().to_ascii_lowercase());
+                    }
+                    "--no-copy-native" => copy_native = false,
+                    other => {
+                        eprintln!("error: unknown option: {other}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            if target.as_deref() != Some("openbve") {
+                eprintln!("error: convert currently requires --to openbve");
+                return ExitCode::from(2);
+            }
+            let Some(output) = output else {
+                eprintln!("error: convert requires -o <package-dir>");
+                return ExitCode::from(2);
+            };
+            convert(
+                Path::new(&path),
+                Path::new(&output),
+                name,
+                copy_native,
+                adapter.as_deref().map(Path::new),
+            )
+        }
         "-h" | "--help" | "help" => {
             usage();
+            ExitCode::SUCCESS
+        }
+        "-V" | "--version" | "version" => {
+            println!("railweave {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         other => {
