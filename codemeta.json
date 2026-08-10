@@ -1,0 +1,33 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "RailWeave",
+  "description": "Open-source Rust toolkit and interoperability layer for converting railway simulator routes and rolling stock through a versioned simulator-neutral intermediate representation.",
+  "codeRepository": "https://github.com/kiwiaraga2000/railweave",
+  "url": "https://github.com/kiwiaraga2000/railweave",
+  "version": "0.1.0",
+  "programmingLanguage": "Rust",
+  "license": [
+    "https://spdx.org/licenses/MIT.html",
+    "https://spdx.org/licenses/Apache-2.0.html"
+  ],
+  "applicationCategory": "Railway simulator interoperability and conversion tooling",
+  "keywords": [
+    "railway simulator",
+    "train simulator",
+    "route conversion",
+    "rolling stock conversion",
+    "simulator interoperability",
+    "OpenBVE",
+    "BVE",
+    "MSTS",
+    "OpenRails",
+    "Trainz",
+    "Train Simulator",
+    "RailWorks",
+    "Loksim3D",
+    "railway route converter",
+    "intermediate representation",
+    "adapter protocol"
+  ]
+}
