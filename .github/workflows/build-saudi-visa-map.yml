@@ -1,0 +1,63 @@
+name: Build Saudi visa map
+
+on:
+  push:
+    branches:
+      - 'tmp/saudi-visa-map'
+    paths:
+      - '.github/workflows/build-saudi-visa-map.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download current Commons SVG
+        shell: bash
+        run: |
+          curl -fL 'https://upload.wikimedia.org/wikipedia/commons/8/86/Visa_requirements_for_Saudi_citizens.svg' -o original.svg
+          echo '89d36bb312d7c1c9687021cf101cb5531e3d5b63  original.svg' | sha1sum -c -
+
+      - name: Update visa colours
+        shell: python
+        env:
+          VISA_CSS_B64: 'LyogVXBkYXRlZCAyMDI2LTA4LTEwIGZyb20gY3VycmVudCB2aXNhIHJlcXVpcmVtZW50cyBmb3IgU2F1ZGkgY2l0aXplbnMuICovCi5zYSB7IGZpbGw6ICMwMDIzNzc7IH0KLmFlLCAuYmgsIC5rdywgLm9tLCAucWEgeyBmaWxsOiAjMTE5MUU1OyB9Ci5hbCwgLmFtLCAuYW8sIC5heiwgLmJhLCAuYmIsIC5idywgLmJ5LCAuY24sIC5kbSwgLmVjLCAuZm0sIC5nYiwgLmdlLCAuZ20sIC5ndCwgLmhuLCAuaHQsIC5pciwgLmtlLCAua2csIC5raSwgLmtuLCAua3IsIC5reiwgLmxrLCAubWEsIC5tZSwgLm11LCAubXksIC5teiwgLm5pLCAubnosIC5wYSwgLnBoLCAucGssIC5ydSwgLnNjLCAuc2csIC5zciwgLnN2LCAudGgsIC50aiwgLnRuLCAudHIsIC51YSwgLnV6LCAudmMsIC52dSwgLnphLCAuem0geyBmaWxsOiAjMjJCMTRDOyB9Ci5iZCwgLmJuLCAuY3YsIC5ndywgLmpvLCAua20sIC5sYiwgLm12LCAubnAsIC5wdywgLnRsLCAudHYsIC53cywgLnllIHsgZmlsbDogI0I1RTYxRDsgfQouYWYsIC5hZywgLmJmLCAuYmosIC5icywgLmJ0LCAuY2QsIC5jaSwgLmNtLCAuY3UsIC5kaiwgLmVnLCAuZ2EsIC5nbiwgLmdxLCAuZ3ksIC5pbiwgLmlxLCAuanAsIC5seSwgLm1kLCAubW0sIC5tbiwgLm1yLCAubmEsIC5uZywgLnBnLCAuc28sIC5zcywgLnN0LCAudGQsIC50ZywgLnR3LCAudWcsIC52ZSwgLnZuLCAuencgeyBmaWxsOiAjNzNEMEFBOyB9Ci5iaSwgLmV0LCAuaWQsIC5raCwgLmxhLCAubWcsIC5tdywgLnJ3LCAuc2wsIC5zeSwgLnR6IHsgZmlsbDogIzc5RDM0MzsgfQouYWQsIC5hciwgLmF0LCAuYXUsIC5iZSwgLmJnLCAuYm8sIC5iciwgLmJ6LCAuY2EsIC5jZiwgLmNnLCAuY2gsIC5jbCwgLmNvLCAuY3IsIC5jeSwgLmN6LCAuZGUsIC5kaywgLmRvLCAuZHosIC5lZSwgLmVyLCAuZXMsIC5maSwgLmZqLCAuZnIsIC5nZCwgLmdoLCAuZ3IsIC5ociwgLmh1LCAuaWUsIC5pbCwgLmlzLCAuaXQsIC5qbSwgLmtwLCAubGMsIC5saSwgLmxyLCAubHMsIC5sdCwgLmx1LCAubHYsIC5tYywgLm1oLCAubWssIC5tbCwgLm10LCAubXgsIC5uZSwgLm5sLCAubm8sIC5uciwgLnBlLCAucGwsIC5wdCwgLnB5LCAucm8sIC5ycywgLnNiLCAuc2QsIC5zZSwgLnNpLCAuc2ssIC5zbSwgLnNuLCAuc3osIC50bSwgLnRvLCAudHQsIC51cywgLnV5LCAudmEgeyBmaWxsOiAjQzBDMEMwOyB9Ci50dyB7IG9wYWNpdHk6IDE7IH0KLmhrLCAubW8geyBmaWxsOiAjMjJCMTRDOyB9Cg=='
+        run: |
+          from pathlib import Path
+          import base64
+          import hashlib
+          import os
+          import xml.etree.ElementTree as ET
+
+          original = Path('original.svg')
+          text = original.read_text(encoding='utf-8')
+          css = base64.b64decode(os.environ['VISA_CSS_B64']).decode('utf-8')
+          marker = '</style>'
+          if marker not in text:
+              raise SystemExit('No </style> found')
+          text = text.replace(marker, '\n' + css + '\n' + marker, 1)
+
+          out = Path('Visa_requirements_for_Saudi_citizens_2026-08-10.svg')
+          out.write_text(text, encoding='utf-8')
+          ET.parse(out)
+
+          assert 'width="2754"' in text and 'height="1398"' in text
+          assert '.sa { fill: #002377; }' in text
+          assert '.tw { opacity: 1; }' in text
+
+          sha1 = hashlib.sha1(out.read_bytes()).hexdigest()
+          Path('manifest.txt').write_text(
+              f'original_sha1=89d36bb312d7c1c9687021cf101cb5531e3d5b63\n'
+              f'updated_sha1={sha1}\n'
+              f'updated_size={out.stat().st_size}\n',
+              encoding='utf-8'
+          )
+          print(Path('manifest.txt').read_text())
+
+      - name: Upload SVG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: saudi-visa-map-2026-08-10
+          path: |
+            Visa_requirements_for_Saudi_citizens_2026-08-10.svg
+            manifest.txt
+          if-no-files-found: error
