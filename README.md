@@ -24,6 +24,8 @@
 
 RailWeave converts source content into a versioned, simulator-neutral railway model and exports that model to a target simulator. OpenBVE is the first production target. The same architecture is designed to add new games once, instead of building and maintaining a converter for every possible pair.
 
+RailWeave is an open-source railway simulator interoperability layer for route conversion, rolling-stock conversion and cross-simulator composition. Its Rust core and adapter boundary cover BVE / OpenBVE, MSTS / OpenRails, Trainz, Train Simulator / RailWorks, Loksim3D, GIS inputs and additional simulator-specific formats without coupling the common model to one game.
+
 ```text
 BVE / OpenBVE ───────┐
 MSTS / OpenRails ────┤

@@ -16,7 +16,7 @@ repository = "https://github.com/kiwiaraga2000/railweave"
 license = "MIT OR Apache-2.0"
 authors = ["RailWeave contributors"]
 homepage = "https://github.com/kiwiaraga2000/railweave"
-keywords = ["openbve", "railway", "simulator", "conversion", "gamedev"]
+keywords = ["openbve", "railway", "simulator", "conversion", "interoperability"]
 categories = ["command-line-utilities", "games"]
 
 [workspace.lints.rust]

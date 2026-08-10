@@ -1,0 +1,51 @@
+# RailWeave
+
+> Open-source Rust toolkit and interoperability layer for converting railway simulator routes and rolling stock through a versioned, simulator-neutral intermediate representation (IR).
+
+RailWeave uses a hub-and-spoke conversion architecture. Source adapters import simulator data into RailWeave IR; target adapters export that IR into simulator packages. This keeps simulator-specific work reusable across current and future sources and targets instead of coupling conversion logic to one simulator pair.
+
+## Scope
+
+- Railway route conversion and migration
+- Train simulator format interoperability
+- Rolling-stock and train metadata conversion
+- Cross-simulator route and rolling-stock composition
+- Deterministic conversion with provenance
+- Explicit diagnostics for unsupported, inferred, defaulted, or lossy data
+
+## Simulator ecosystems and formats
+
+RailWeave currently covers or exposes adapter boundaries for BVE / OpenBVE, MSTS / OpenRails, Trainz, Train Simulator / RailWorks, Loksim3D, RailWeave JSON, GeoJSON, and RailWeave track CSV. OpenBVE is the first production export target.
+
+## Extension model
+
+New simulator support fits one of three extension points:
+
+1. a built-in source adapter that imports a redistributable or testable format into RailWeave IR;
+2. a target adapter that exports RailWeave IR into another simulator ecosystem;
+3. an external adapter for proprietary, fast-moving, SDK-dependent, or game-installation-dependent formats.
+
+The external adapter protocol is language-independent and returns the same versioned ImportResult JSON shape as built-in importers.
+
+## Architecture and guarantees
+
+- Versioned simulator-neutral graph IR
+- Source provenance retained on imported entities
+- Stable diagnostic codes for conversion loss
+- Deterministic IDs, path selection, and output
+- Local-only asset handling; no DRM bypass or bundled proprietary fixtures
+- Hub-and-spoke adapter architecture rather than pairwise converters
+
+## Documentation
+
+- [README](https://github.com/kiwiaraga2000/railweave/blob/main/README.md): overview, installation, commands, supported ecosystems
+- [Capability matrix](https://github.com/kiwiaraga2000/railweave/blob/main/docs/capabilities.md): exact source/import/export coverage and known losses
+- [Architecture](https://github.com/kiwiaraga2000/railweave/blob/main/docs/architecture.md): IR, crates, conversion model, diagnostics
+- [External adapter protocol](https://github.com/kiwiaraga2000/railweave/blob/main/docs/adapter-protocol.md): contract for additional simulator adapters
+- [Contributing](https://github.com/kiwiaraga2000/railweave/blob/main/CONTRIBUTING.md): tests, fixtures, format-support requirements
+
+## Source
+
+- Repository: https://github.com/kiwiaraga2000/railweave
+- Language: Rust
+- License: MIT OR Apache-2.0
