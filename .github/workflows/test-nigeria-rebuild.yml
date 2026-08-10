@@ -1,0 +1,109 @@
+name: Test Nigeria visa map rebuild
+
+on:
+  push:
+    paths:
+      - '.github/workflows/test-nigeria-rebuild.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild from Commons
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, urllib.request
+
+          url = 'https://upload.wikimedia.org/wikipedia/commons/9/9b/Visa_requirements_for_Nigeria_citizens.svg'
+          data = urllib.request.urlopen(url).read()
+          print('source bytes', len(data), 'sha1', hashlib.sha1(data).hexdigest())
+          text = data.decode('utf-8')
+          marker = '/*\n * Styles to colour countries and territories according to their visa requirements for Nigerian citizens'
+          start = text.index(marker)
+          end = text.index('</style>', start)
+          css = '''/*
+ * Styles to colour countries and territories according to their visa requirements for Nigerian citizens
+ * Note: Organized in alphabetical order of ISO country code, and from most to least permissive.
+ */
+
+/* Country */
+.ma {fill:#002377;}
+
+/* Western Sahara */
+.eh {fill:url(#VOA30)}
+.xz {fill:#c0c0c0}
+
+/* Visa not required */
+.ao, .az, .bb, .bf, .bj, .br, .bz, .ci, .co, .cv,
+.dm, .do, .ec, .fm, .gm, .gn,
+.ga, .gd, .gh, .hk, .ht,
+.ke, .ki, .kr, .kz,
+.ml, .mo, .my, .ne,
+.om, .ph, .pn, .rw, .sc, .sn, .sr, .st, .sy,
+.tg, .th, .tn, .tr, .vc, .vu, .zm {fill:#22b14c;}
+
+/* eVisa, Visa on arrival */
+.bh, .bi,
+.et,
+.id, .jo, .kh, .la, .lk,
+.mg, .mz, .np,
+.sl,
+.tz {fill: #79d343;}
+
+/* Visa on arrival */
+.cg,
+.gw,
+.km, .lb,
+.mh, .mu, .mv, ni,
+.pw,
+.tl, .tv, .ws {fill: #b5e61d;}
+
+/* eVisa */
+.af, .ag, .al, .am, .bo, .bs, .bt, .bw, .cd, .cm, .cu,
+.dj, .fj, .gq, .gy,
+.in, .iq, .kg, .kn, kz, .ir, lk,
+.mm, .mr, .mw, .na, .ng,
+.pg, .pk, .qa, .rs, .so, .ss,
+.td, .tj, .tt, .ug, .uz, .ve, .vn, .za, .zw {fill: #73d0aa;}
+
+.tj {fill:#a8e096}
+
+/*.tj {fill:url(#VOA30)}*/
+
+/* Unrecognized or partially recognized countries */
+.xa, .xn, .xo {fill:#c0c0c0}
+.xs {fill:#b5e61d}
+.ps, .xp {fill:#22b14c}
+.xc {fill:#c0c0c0}
+
+/* British Overseas Territories */
+.bm, .fk, .gi, .io, .ky, .tc, .vg {fill:#c0c0c0}
+.pn {fill:#22b14c}
+.gs {fill:#b5e61d}
+.ai, .ms, .sh {fill:#73d0aa}
+.sh_a {display:none}
+
+/* Overseas France */
+.bl, .gf, .gp, .mf, .mq, .nc, .pf, .pm, .re, .tf, .wf, .yt {fill:#c0c0c0}
+
+/* Netherlands */
+.aw, .cw, .sx {fill:#c0c0c0}
+
+/* Australia */
+.cc, .cx, .hm, .nf {fill:#c0c0c0}
+
+/* New Zealand */
+.ck, .nu {fill:#22b14c}
+.tk {fill:#c0c0c0}
+
+/* United States */
+.gu, .mp, .pr, .vi {fill:#c0c0c0}
+.as {fill:#c0c0c0}
+
+'''
+          rebuilt = (text[:start] + css + text[end:]).encode('utf-8')
+          print('rebuilt bytes', len(rebuilt), 'sha1', hashlib.sha1(rebuilt).hexdigest())
+          target = '3ef628ee91636615b43f15be1222dc1c07369aba'
+          if hashlib.sha1(rebuilt).hexdigest() != target:
+              raise SystemExit('target SHA-1 mismatch')
