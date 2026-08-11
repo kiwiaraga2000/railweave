@@ -15,7 +15,7 @@ RailWeave reports unsupported, inferred and defaulted data as diagnostics. Detec
 | Train Simulator / RailWorks | yes | via portable bridge or external adapter | via adapter | via adapter | binary `Tracks.bin` revisions normally need Serz/game tooling |
 | Loksim3D | yes | via portable bridge or external adapter | via adapter | via adapter | packages/modules vary by release |
 
-Portable bridge discovery looks for `.railweave.json`, `.geojson`, `.railweave.csv`, or `railweave-track.csv` inside a detected game source. For other formats or deeper game-specific data, use the [external adapter protocol](adapter-protocol.md).
+Portable bridge discovery looks for `.railweave.json`, `.geojson`, `.railweave.csv`, or `railweave-track.csv` inside a detected game source. Trainz `config.txt` identity metadata is retained when its portable route bridge is imported. For other formats or deeper game-specific data, RailWeave automatically discovers compatible executables through the [external adapter protocol](adapter-protocol.md).
 
 ## Composition
 

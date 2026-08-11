@@ -26,8 +26,9 @@ pub struct TrainzConfigParse {
 pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
     let mut out = TrainzConfigParse::default();
     let mut container_depth = 0usize;
+    let lines: Vec<&str> = input.lines().collect();
 
-    for (index, raw_line) in input.lines().enumerate() {
+    for (index, raw_line) in lines.iter().enumerate() {
         let line_number = index + 1;
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
@@ -60,6 +61,18 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
         }
 
         let Some((raw_key, raw_value)) = split_key_value(line) else {
+            let opens_container = lines[index + 1..]
+                .iter()
+                .map(|candidate| candidate.trim())
+                .find(|candidate| {
+                    !candidate.is_empty()
+                        && !candidate.starts_with('#')
+                        && !candidate.starts_with("//")
+                })
+                == Some("{");
+            if opens_container {
+                continue;
+            }
             out.diagnostics.push(TrainzConfigDiagnostic {
                 line: line_number,
                 key: None,
@@ -89,7 +102,9 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
                 out.diagnostics.push(TrainzConfigDiagnostic {
                     line: line_number,
                     key: Some(key),
-                    message: "Trainz metadata key is preserved but not mapped by the native adapter yet".into(),
+                    message:
+                        "Trainz metadata key is preserved but not mapped by the native adapter yet"
+                            .into(),
                 });
             }
         }
@@ -97,7 +112,7 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
 
     if container_depth > 0 {
         out.diagnostics.push(TrainzConfigDiagnostic {
-            line: input.lines().count().max(1),
+            line: lines.len().max(1),
             key: None,
             message: "unterminated Trainz metadata container".into(),
         });
@@ -148,9 +163,19 @@ mod tests {
     #[test]
     fn preserves_unknown_fields_and_reports_loss_explicitly() {
         let parsed = parse_trainz_config("kind map\ncustom-track-rule keep-me\n");
-        assert_eq!(parsed.config.unknown_keys.get("custom-track-rule").map(String::as_str), Some("keep-me"));
+        assert_eq!(
+            parsed
+                .config
+                .unknown_keys
+                .get("custom-track-rule")
+                .map(String::as_str),
+            Some("keep-me")
+        );
         assert_eq!(parsed.diagnostics.len(), 1);
-        assert_eq!(parsed.diagnostics[0].key.as_deref(), Some("custom-track-rule"));
+        assert_eq!(
+            parsed.diagnostics[0].key.as_deref(),
+            Some("custom-track-rule")
+        );
     }
 
     #[test]
