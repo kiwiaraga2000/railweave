@@ -6,6 +6,7 @@ mod msts_consist;
 mod msts_curve;
 mod msts_tsection;
 mod msts_vehicle;
+mod trainz_config;
 
 use railweave_core::{
     Diagnostic, ImportError, ImportResult, Severity, SourceFormat, IR_SCHEMA_VERSION,
@@ -14,6 +15,7 @@ use std::path::Path;
 use std::process::Command;
 
 pub use detectors::{built_in_detectors, detect_all};
+pub use trainz_config::{parse_trainz_config, TrainzConfig, TrainzConfigDiagnostic, TrainzConfigParse};
 
 /// Run a user-supplied source adapter using the stable RailWeave adapter protocol.
 ///
