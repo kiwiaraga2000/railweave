@@ -25,11 +25,37 @@ pub struct TrainzConfigParse {
 
 pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
     let mut out = TrainzConfigParse::default();
+    let mut container_depth = 0usize;
 
     for (index, raw_line) in input.lines().enumerate() {
         let line_number = index + 1;
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+
+        if line == "}" {
+            if container_depth == 0 {
+                out.diagnostics.push(TrainzConfigDiagnostic {
+                    line: line_number,
+                    key: None,
+                    message: "unmatched Trainz container closing brace".into(),
+                });
+            } else {
+                container_depth -= 1;
+            }
+            continue;
+        }
+
+        if line == "{" || line.ends_with('{') {
+            container_depth += 1;
+            continue;
+        }
+
+        // Nested Trainz containers describe structured asset metadata. The native
+        // adapter does not map their contents yet, but braces and child entries are
+        // valid syntax and must not be reported as malformed top-level metadata.
+        if container_depth > 0 {
             continue;
         }
 
@@ -67,6 +93,14 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
                 });
             }
         }
+    }
+
+    if container_depth > 0 {
+        out.diagnostics.push(TrainzConfigDiagnostic {
+            line: input.lines().count().max(1),
+            key: None,
+            message: "unterminated Trainz metadata container".into(),
+        });
     }
 
     out
@@ -125,5 +159,41 @@ mod tests {
         assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert_eq!(parsed.diagnostics.len(), 1);
         assert_eq!(parsed.diagnostics[0].line, 2);
+    }
+
+    #[test]
+    fn accepts_nested_trainz_containers_without_false_malformed_diagnostics() {
+        let parsed = parse_trainz_config(
+            r#"
+            kind map
+            username "Synthetic Valley"
+            kuid <kuid:123:456>
+            obsolete-table
+            {
+                0 <kuid:123:100>
+                1 <kuid:123:101>
+            }
+            trainz-build 4.6
+            "#,
+        );
+
+        assert_eq!(parsed.config.kind.as_deref(), Some("map"));
+        assert_eq!(parsed.config.trainz_build.as_deref(), Some("4.6"));
+        assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_unbalanced_container_braces() {
+        let unterminated = parse_trainz_config("kind map\nobsolete-table\n{\n0 <kuid:1:2>\n");
+        assert!(unterminated
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unterminated")));
+
+        let unmatched = parse_trainz_config("kind map\n}\n");
+        assert!(unmatched
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unmatched")));
     }
 }
