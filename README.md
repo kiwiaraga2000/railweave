@@ -85,9 +85,11 @@ The manifest records provenance, entity counts, defaults and every known convers
 
 See [the exact capability matrix](docs/capabilities.md). It separates detection, import, composition and export so partial support is visible.
 
-## Any game through the adapter protocol
+## Any game through automatic adapters
 
-Proprietary formats change independently of RailWeave and often require an installed game SDK. An external adapter makes those formats first-class without coupling the core to a particular game version:
+Proprietary formats change independently of RailWeave and often require an installed game SDK. An external adapter makes those formats first-class without coupling the core to a particular game version. RailWeave discovers conventionally named adapters automatically beside the source, through `RAILWEAVE_ADAPTER_PATH`, and on `PATH`.
+
+For example, a detected Trainz source looks for `railweave-adapter-trainz`; an unknown `.foo` file looks for `railweave-adapter-foo`. An explicit path remains available when several format revisions need different tools:
 
 ```bash
 railweave convert ./source-route \

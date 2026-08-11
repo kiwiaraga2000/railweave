@@ -1,4 +1,5 @@
 use crate::detectors::{decode_text, entries};
+use crate::parse_trainz_config;
 use railweave_core::{
     Diagnostic, ImportError, ImportResult, Provenance, RailProject, Severity, SourceFormat,
     Station, TrackEdge, TrackNode, Vec3,
@@ -460,6 +461,55 @@ pub(crate) fn import_game_bridge(
             bridge.display()
         ),
     ));
+    if detected_format == SourceFormat::Trainz {
+        if let Some(config_path) = entries(root).into_iter().find(|path| {
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .map(|value| value.eq_ignore_ascii_case("config.txt"))
+                .unwrap_or(false)
+        }) {
+            if let Ok(text) = fs::read_to_string(&config_path) {
+                let parsed = parse_trainz_config(&text);
+                if parsed.config.username.is_some() {
+                    result.project.metadata.title = parsed.config.username.clone();
+                }
+                let identity = [
+                    parsed.config.kuid.as_deref(),
+                    parsed.config.trainz_build.as_deref(),
+                    parsed.config.kind.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(", ");
+                result.diagnostics.push(Diagnostic::new(
+                    Severity::Info,
+                    "RW138_TRAINZ_METADATA",
+                    format!(
+                        "preserved Trainz asset metadata from {}{}",
+                        config_path.display(),
+                        if identity.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({identity})")
+                        }
+                    ),
+                ));
+                for diagnostic in parsed.diagnostics {
+                    result.diagnostics.push(Diagnostic::new(
+                        Severity::Warning,
+                        "RW139_TRAINZ_METADATA_LOSS",
+                        format!(
+                            "{} line {}: {}",
+                            config_path.display(),
+                            diagnostic.line,
+                            diagnostic.message
+                        ),
+                    ));
+                }
+            }
+        }
+    }
     Ok(result)
 }
 
@@ -515,5 +565,32 @@ mod tests {
         );
         assert_eq!(imported.project.stations.len(), 2);
         fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn trainz_bridge_preserves_native_config_identity() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("railweave-trainz-bridge-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("config.txt"),
+            "kind map\nusername \"Synthetic Valley\"\nkuid <kuid:123:456>\ntrainz-build 4.6\n",
+        )
+        .unwrap();
+        fs::write(root.join("railweave-track.csv"), "x,z\n0,0\n0,100\n").unwrap();
+
+        let imported = import_game_bridge(&root, SourceFormat::Trainz).unwrap();
+        assert_eq!(
+            imported.project.metadata.title.as_deref(),
+            Some("Synthetic Valley")
+        );
+        assert!(imported
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RW138_TRAINZ_METADATA"));
+        fs::remove_dir_all(root).ok();
     }
 }

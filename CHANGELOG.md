@@ -4,6 +4,12 @@ All notable changes are documented here. This project follows Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- automatic format- and extension-specific adapter discovery beside sources, through `RAILWEAVE_ADAPTER_PATH`, and on `PATH`;
+- native Trainz `config.txt` parsing and metadata preservation for portable route bridges;
+- exact expected adapter names in unsupported-format diagnostics.
+
 ## [0.1.0] - 2026-08-10
 
 ### Added

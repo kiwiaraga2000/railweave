@@ -2,6 +2,16 @@
 
 External adapters let any game, editor or private asset pipeline participate in RailWeave without being linked into the Rust workspace.
 
+## Automatic discovery
+
+`railweave convert` first tries built-in importers and portable bridges. For an unsupported or unknown source it then searches, in order:
+
+1. `.railweave/adapters` beside the source;
+2. every directory in `RAILWEAVE_ADAPTER_PATH`;
+3. the operating-system `PATH`.
+
+Names come from the detected format (`railweave-adapter-trainz`) and the source extension (`railweave-adapter-cdp`). The generic name `railweave-adapter` is the final fallback. A correctly installed adapter therefore works with the normal one-command conversion and no extra option.
+
 ## Invocation
 
 ```bash
