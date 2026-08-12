@@ -52,6 +52,22 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
             continue;
         }
 
+        // Trainz commonly writes a container name on one line and its opening
+        // brace on the next. Treat that name as structural syntax rather than a
+        // malformed top-level key/value line. Comments and blank lines between
+        // the header and opening brace are allowed.
+        let opens_container = input
+            .lines()
+            .skip(index + 1)
+            .map(str::trim)
+            .find(|next| {
+                !next.is_empty() && !next.starts_with('#') && !next.starts_with("//")
+            })
+            == Some("{");
+        if opens_container {
+            continue;
+        }
+
         // Nested Trainz containers describe structured asset metadata. The native
         // adapter does not map their contents yet, but braces and child entries are
         // valid syntax and must not be reported as malformed top-level metadata.
@@ -148,7 +164,14 @@ mod tests {
     #[test]
     fn preserves_unknown_fields_and_reports_loss_explicitly() {
         let parsed = parse_trainz_config("kind map\ncustom-track-rule keep-me\n");
-        assert_eq!(parsed.config.unknown_keys.get("custom-track-rule").map(String::as_str), Some("keep-me"));
+        assert_eq!(
+            parsed
+                .config
+                .unknown_keys
+                .get("custom-track-rule")
+                .map(String::as_str),
+            Some("keep-me")
+        );
         assert_eq!(parsed.diagnostics.len(), 1);
         assert_eq!(parsed.diagnostics[0].key.as_deref(), Some("custom-track-rule"));
     }
@@ -179,6 +202,25 @@ mod tests {
 
         assert_eq!(parsed.config.kind.as_deref(), Some("map"));
         assert_eq!(parsed.config.trainz_build.as_deref(), Some("4.6"));
+        assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn accepts_container_header_with_spacing_and_comments() {
+        let parsed = parse_trainz_config(
+            r#"
+            kind map
+            obsolete-table
+
+            // legal synthetic fixture note
+            {
+                0 <kuid:123:100>
+            }
+            username Test
+            "#,
+        );
+
+        assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert!(parsed.diagnostics.is_empty());
     }
 
