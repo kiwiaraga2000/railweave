@@ -208,6 +208,25 @@ mod tests {
     }
 
     #[test]
+    fn accepts_container_header_separated_by_blank_lines_and_comments() {
+        let parsed = parse_trainz_config(
+            r#"
+            kind map
+            obsolete-table
+
+            // synthetic fixture note
+            {
+                0 <kuid:123:100>
+            }
+            username Test
+            "#,
+        );
+
+        assert_eq!(parsed.config.username.as_deref(), Some("Test"));
+        assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
     fn reports_unbalanced_container_braces() {
         let unterminated = parse_trainz_config("kind map\nobsolete-table\n{\n0 <kuid:1:2>\n");
         assert!(unterminated
