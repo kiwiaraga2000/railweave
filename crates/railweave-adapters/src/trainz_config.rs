@@ -31,7 +31,19 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
     for (index, raw_line) in lines.iter().enumerate() {
         let line_number = index + 1;
         let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+        if line.is_empty() {
+            continue;
+        }
+
+        // Trainz config.txt is ACS text, not a programming-language source file.
+        // Content Manager does not support comment lines, so accepting familiar
+        // comment markers here would make an invalid asset look clean.
+        if looks_like_comment(line) {
+            out.diagnostics.push(TrainzConfigDiagnostic {
+                line: line_number,
+                key: None,
+                message: "Trainz config does not support comment lines".into(),
+            });
             continue;
         }
 
@@ -64,11 +76,7 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
             let opens_container = lines[index + 1..]
                 .iter()
                 .map(|candidate| candidate.trim())
-                .find(|candidate| {
-                    !candidate.is_empty()
-                        && !candidate.starts_with('#')
-                        && !candidate.starts_with("//")
-                })
+                .find(|candidate| !candidate.is_empty())
                 == Some("{");
             if opens_container {
                 continue;
@@ -119,6 +127,16 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
     }
 
     out
+}
+
+fn looks_like_comment(line: &str) -> bool {
+    line.starts_with("//")
+        || line.starts_with('#')
+        || line.starts_with(';')
+        || line.eq_ignore_ascii_case("rem")
+        || line
+            .get(..4)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("rem "))
 }
 
 fn split_key_value(line: &str) -> Option<(&str, &str)> {
@@ -208,13 +226,12 @@ mod tests {
     }
 
     #[test]
-    fn accepts_container_header_separated_by_blank_lines_and_comments() {
+    fn accepts_container_header_separated_by_blank_lines() {
         let parsed = parse_trainz_config(
             r#"
             kind map
             obsolete-table
 
-            // synthetic fixture note
             {
                 0 <kuid:123:100>
             }
@@ -224,6 +241,40 @@ mod tests {
 
         assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_comment_like_lines_instead_of_accepting_them() {
+        let parsed = parse_trainz_config(
+            "kind map\n// not a Trainz comment\n; neither is this\nrem nor this\n# nor this\nusername Test\n",
+        );
+
+        assert_eq!(parsed.config.username.as_deref(), Some("Test"));
+        assert_eq!(parsed.diagnostics.len(), 4);
+        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
+            .message
+            .contains("does not support comment lines")));
+        assert_eq!(
+            parsed
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.line)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn comment_like_line_cannot_bridge_a_container_header_to_its_brace() {
+        let parsed = parse_trainz_config(
+            "kind map\nobsolete-table\n// invalid separator\n{\n0 <kuid:1:2>\n}\n",
+        );
+
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert!(parsed.diagnostics[0].message.contains("expected key/value"));
+        assert!(parsed.diagnostics[1]
+            .message
+            .contains("does not support comment lines"));
     }
 
     #[test]
