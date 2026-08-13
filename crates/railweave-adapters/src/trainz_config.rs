@@ -90,7 +90,16 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
             continue;
         };
 
-        let key = raw_key.trim().to_ascii_lowercase();
+        let raw_key = raw_key.trim();
+        let key = raw_key.to_ascii_lowercase();
+        if raw_key.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            out.diagnostics.push(TrainzConfigDiagnostic {
+                line: line_number,
+                key: Some(key.clone()),
+                message: "uppercase ASCII is not valid in an ACS Text Format key".into(),
+            });
+        }
+
         if !seen_top_level_keys.insert(key.clone()) {
             out.diagnostics.push(TrainzConfigDiagnostic {
                 line: line_number,
@@ -305,6 +314,18 @@ mod tests {
         assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
             .message
             .contains("duplicate Trainz metadata key")));
+    }
+
+    #[test]
+    fn uppercase_ascii_keys_are_reported_without_hiding_the_metadata() {
+        let parsed = parse_trainz_config("Kind map\nUserName Test\n");
+
+        assert_eq!(parsed.config.kind.as_deref(), Some("map"));
+        assert_eq!(parsed.config.username.as_deref(), Some("Test"));
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
+            .message
+            .contains("uppercase ASCII")));
     }
 
     #[test]
