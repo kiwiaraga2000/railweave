@@ -270,10 +270,12 @@ mod tests {
 
         assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert_eq!(parsed.diagnostics.len(), 4);
-        assert!(parsed
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.message.contains("does not support comment lines")));
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.message.contains("does not support comment lines"))
+        );
         assert_eq!(
             parsed
                 .diagnostics
@@ -299,7 +301,8 @@ mod tests {
 
     #[test]
     fn duplicate_top_level_keys_are_reported_without_overwriting_the_first_value() {
-        let parsed = parse_trainz_config("kind map\nusername First\nkind scenery\nusername Second\n");
+        let parsed =
+            parse_trainz_config("kind map\nusername First\nkind scenery\nusername Second\n");
 
         assert_eq!(parsed.config.kind.as_deref(), Some("map"));
         assert_eq!(parsed.config.username.as_deref(), Some("First"));
