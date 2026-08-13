@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TrainzConfig {
@@ -26,6 +26,7 @@ pub struct TrainzConfigParse {
 pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
     let mut out = TrainzConfigParse::default();
     let mut container_depth = 0usize;
+    let mut seen_top_level_keys = BTreeSet::new();
     let lines: Vec<&str> = input.lines().collect();
 
     for (index, raw_line) in lines.iter().enumerate() {
@@ -90,6 +91,15 @@ pub fn parse_trainz_config(input: &str) -> TrainzConfigParse {
         };
 
         let key = raw_key.trim().to_ascii_lowercase();
+        if !seen_top_level_keys.insert(key.clone()) {
+            out.diagnostics.push(TrainzConfigDiagnostic {
+                line: line_number,
+                key: Some(key),
+                message: "duplicate Trainz metadata key in the same scope".into(),
+            });
+            continue;
+        }
+
         let value = unquote(raw_value.trim()).to_string();
         if value.is_empty() {
             out.diagnostics.push(TrainzConfigDiagnostic {
@@ -275,6 +285,26 @@ mod tests {
         assert!(parsed.diagnostics[1]
             .message
             .contains("does not support comment lines"));
+    }
+
+    #[test]
+    fn duplicate_top_level_keys_are_reported_without_overwriting_the_first_value() {
+        let parsed = parse_trainz_config("kind map\nusername First\nkind scenery\nusername Second\n");
+
+        assert_eq!(parsed.config.kind.as_deref(), Some("map"));
+        assert_eq!(parsed.config.username.as_deref(), Some("First"));
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert_eq!(
+            parsed
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.line)
+                .collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
+            .message
+            .contains("duplicate Trainz metadata key")));
     }
 
     #[test]
