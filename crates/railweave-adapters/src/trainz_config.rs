@@ -270,9 +270,10 @@ mod tests {
 
         assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert_eq!(parsed.diagnostics.len(), 4);
-        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
-            .message
-            .contains("does not support comment lines")));
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("does not support comment lines")));
         assert_eq!(
             parsed
                 .diagnostics
@@ -311,9 +312,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![3, 4]
         );
-        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
-            .message
-            .contains("duplicate Trainz metadata key")));
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("duplicate Trainz metadata key")));
     }
 
     #[test]
@@ -323,9 +325,10 @@ mod tests {
         assert_eq!(parsed.config.kind.as_deref(), Some("map"));
         assert_eq!(parsed.config.username.as_deref(), Some("Test"));
         assert_eq!(parsed.diagnostics.len(), 2);
-        assert!(parsed.diagnostics.iter().all(|diagnostic| diagnostic
-            .message
-            .contains("uppercase ASCII")));
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("uppercase ASCII")));
     }
 
     #[test]
